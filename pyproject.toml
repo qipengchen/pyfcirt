@@ -1,0 +1,56 @@
+[build-system]
+requires = ["hatchling>=1.26,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pyfcirt"
+version = "0.1.0.dev0"
+description = "Bayesian forced-choice IRT modeling with PyMC and ArviZ"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{name = "qipengchen"}]
+dependencies = [
+    "pymc>=6,<7",
+    "pytensor>=3,<4",
+    "arviz>=1,<2",
+    "arviz-stats>=1,<2",
+    "numpy>=2",
+    "pandas>=2.2",
+    "xarray>=2025.1",
+]
+
+[project.urls]
+Repository = "https://github.com/qipengchen/pyfcirt"
+Issues = "https://github.com/qipengchen/pyfcirt/issues"
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+lint = ["ruff"]
+release = ["build", "twine"]
+io = ["h5netcdf", "h5py"]
+plots = ["arviz-plots[matplotlib]>=1,<2"]
+numpyro = ["numpyro"]
+docs = ["sphinx", "myst-nb", "numpydoc", "ipykernel"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pyfcirt"]
+
+[tool.hatch.build.targets.sdist]
+exclude = ["/AGENTS.md", "/PLAN.md", "/.agent", "/.agents"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--import-mode=importlib --strict-markers"
+markers = [
+    "slow: subprocess documentation and supplied-trace continuation checks",
+    "reference: direct comparison in isolated R2jags or legacy ArviZ environments",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
