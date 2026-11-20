@@ -13,7 +13,7 @@ The extras add plotting, NetCDF saving, and covariate formulas. For GPU
 sampling with JAX, add `cuda12` or `cuda13` to the extras. See the
 [GPU setup](examples/gpu.md) for driver requirements.
 
-To install from GitHub before the beta is available:
+Before the beta is available, install from GitHub.
 
 ```console
 python -m pip install "pyfcirt[plots,io,covariates] @ https://github.com/qipengchen/pyfcirt/archive/refs/heads/main.zip"
