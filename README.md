@@ -5,7 +5,6 @@ Bayesian forced-choice modeling in Python.
 [![Checks](https://github.com/qipengchen/pyfcirt/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/qipengchen/pyfcirt/actions/workflows/ci.yml)
 [![Coverage](https://codecov.io/gh/qipengchen/pyfcirt/branch/main/graph/badge.svg)](https://codecov.io/gh/qipengchen/pyfcirt)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
-[![Python](https://img.shields.io/badge/Python-3.12%2B-blue)](https://qipengchen.github.io/pyfcirt/guide/getting_started.html#installation)
 [![License](https://img.shields.io/badge/License-MIT%20%26%20Apache--2.0-blue)](NOTICE)
 
 <!-- quick-start-start -->
