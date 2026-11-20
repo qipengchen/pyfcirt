@@ -66,6 +66,7 @@ def test_calibration_identity_covers_structural_fixed_values_and_typed_people():
     assert first.scoring_batch_identity != new_person.scoring_batch_identity
 
 
+@pytest.mark.filterwarnings("ignore:^Statements without observed comparisons:UserWarning")
 def test_scoring_evidence_distinguishes_changed_partial_ranking_constraints():
     import pandas as pd
 

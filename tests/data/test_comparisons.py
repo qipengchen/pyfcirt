@@ -134,6 +134,7 @@ def test_invalid_statement_ranks_fail_before_encoding(change):
 
 
 @pytest.mark.parametrize("status", ["missing", "refused", "not_administered"])
+@pytest.mark.filterwarnings("ignore:^Statements without observed comparisons:UserWarning")
 def test_unanswered_statement_ranks_remain_absent_events(status):
     rows = pd.DataFrame(
         {
@@ -301,6 +302,7 @@ def test_comparison_cycles_and_duplicates_are_rejected():
             )
 
 
+@pytest.mark.filterwarnings("ignore:^Statements without observed comparisons:UserWarning")
 def test_comparison_wide_has_explicit_column_meanings():
     source = input_case(format="comparison_long")
     wide = pd.DataFrame({"opaque": [1]}, index=pd.Index(["p"], name="person_id"))

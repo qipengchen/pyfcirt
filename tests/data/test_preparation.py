@@ -1343,6 +1343,7 @@ def test_tirt_group_means_depend_on_fixed_pair_loading_directions(anchors, ident
 
 
 @pytest.mark.parametrize("model", [fc.TIRT(), fc.GTUM(block_effect=True)])
+@pytest.mark.filterwarnings("ignore:^Statements without observed comparisons:UserWarning")
 def test_comparison_generation_schedules_keep_all_pairs_and_fresh_person_layouts(model):
     source = fc.FCInput(
         "[traits]\nA~ a c\nB~ b\n[blocks]\ntriple ~ a b c\nside +~ a b c",
@@ -1583,6 +1584,7 @@ def test_shared_statements_keep_each_blocks_presentation_order():
     ]
 
 
+@pytest.mark.filterwarnings("ignore:^Statements without observed comparisons:UserWarning")
 def test_partial_comparison_schedule_retains_only_its_actual_edge():
     source = pair_input()
     source = replace(
@@ -1733,6 +1735,7 @@ def test_unfolding_location_support_preserves_active_and_inactive_sides(side, re
     assert bool(entries.strict_negative.all()) is (side < 0 and not relaxed)
 
 
+@pytest.mark.filterwarnings("ignore:^Statements without observed comparisons:UserWarning")
 def test_new_people_reject_incompatible_native_person_block_effect_array():
     source = fc.FCInput(
         "[traits]\nA ~ a c\nB ~ b\n[blocks]\ntriple ~ a b c\nside + ~ a b c",

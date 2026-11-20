@@ -1133,6 +1133,7 @@ def test_saved_pick_and_mole_supports_keep_unknown_positions(tmp_path):
         xr.testing.assert_identical(saved["response_support/b2"].to_dataset(), mole)
 
 
+@pytest.mark.filterwarnings("ignore:^Statements without observed comparisons:UserWarning")
 def test_saved_partial_comparison_support_keeps_signature_pair_order(tmp_path):
     import numpy as np
 
