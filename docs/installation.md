@@ -38,6 +38,15 @@ conda activate pyfcirt-beta
 python -c "import pyfcirt as fc; assert fc.__version__ == '0.1.0b1'; print(fc.__version__)"
 ```
 
+For a native Python GPU installation, use the `cuda12` or `cuda13` extra
+to select the corresponding JAX CUDA packages. See the
+[JAX driver and hardware requirements](https://docs.jax.dev/en/latest/installation.html#nvidia-gpu).
+For example, install CUDA 13 support with:
+
+```console
+python -m pip install "pyfcirt[cuda13]==0.1.0b1"
+```
+
 The beta container tags are `0.1.0b1-cpu` and `0.1.0b1-cuda12`.
 Use an NVIDIA Docker host with a CUDA 12-compatible driver for the GPU image.
 Confirm that JAX selects the GPU inside the container.
