@@ -40,11 +40,11 @@ jobs:
     steps:
       # PR merge commits include their base parent at depth 2. Missing baselines
       # fall back to full tests without fetching every branch's history.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 2
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
       - name: Select affected checks
@@ -55,7 +55,7 @@ jobs:
         run: python scripts/ci.py --plan "$RUNNER_TEMP/ci-plan.json"
       - name: Verify CI selection logic
         run: python -m unittest discover -s .github/tests -v
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: ci-plan
           path: ${{ runner.temp }}/ci-plan.json
@@ -66,13 +66,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: ci-plan
           path: ${{ runner.temp }}
@@ -131,15 +131,15 @@ jobs:
       JAX_ENABLE_X64: 'true'
       PYTENSOR_FLAGS: mode=FAST_COMPILE,cxx=,floatX=float64,cast_policy=numpy+floatX,traceback__limit=0
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
           cache: pip
           cache-dependency-path: pyproject.toml
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: ci-plan
           path: ${{ runner.temp }}
@@ -171,7 +171,7 @@ jobs:
           f'Overall branch coverage {covered}/{total} is below 90%'"
       - name: Retain test and coverage reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: checks-${{ matrix.os }}
           include-hidden-files: true

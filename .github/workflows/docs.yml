@@ -35,10 +35,10 @@ jobs:
       JAX_ENABLE_X64: 'true'
       PYTENSOR_FLAGS: mode=FAST_COMPILE,cxx=,floatX=float64,traceback__limit=0
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
           cache: pip
@@ -51,14 +51,14 @@ jobs:
       - name: Build existing Sphinx documentation
         run: python -m sphinx -W --keep-going -D nb_execution_mode=off -b html docs _build/html
       - name: Upload downloadable HTML preview
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: documentation-html
           path: _build/html
           retention-days: 7
       - name: Upload Pages artifact
         if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish))
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@v5
         with:
           path: _build/html
 
@@ -73,7 +73,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v6
       - name: Deploy GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
