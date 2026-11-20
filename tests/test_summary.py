@@ -605,6 +605,7 @@ def test_shared_statement_statistics_are_computed_once_then_associated_with_bloc
     "names", [("a", "b", "c"), (11, 7, 23), ("S1 vs S2", "S3", "S4"), ("S1 > S2", "S3", "S4")]
 )
 @pytest.mark.parametrize("higher_prefers", ["first", "second"])
+@pytest.mark.filterwarnings("ignore:^Statements without observed comparisons:UserWarning")
 def test_comparison_coefficients_use_the_frozen_pair_dimension(count, names, higher_prefers):
     data = fc.FCInput(
         fc.FCDesignMapping(
@@ -681,6 +682,7 @@ def test_comparison_coefficients_use_the_frozen_pair_dimension(count, names, hig
 
 @pytest.mark.parametrize("members", [("d", "e", "f"), ("c", "d", "a")])
 @pytest.mark.parametrize("response_format", ["rank", "pick", "mole", None])
+@pytest.mark.filterwarnings("ignore:^Statements without observed comparisons:UserWarning")
 def test_pair_labels_resolve_each_block_membership(members, response_format):
     blocks = {"B1": ["a", "b", "c"], "B2": list(members)}
     statements = list(dict.fromkeys([*blocks["B1"], *blocks["B2"]]))

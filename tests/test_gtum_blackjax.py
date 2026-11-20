@@ -120,6 +120,7 @@ def test_conditional_target_rejects_non_gtum_measurements():
         _require_gtum(mixed_model()._bindings)
 
 
+@pytest.mark.filterwarnings("ignore:^Statements without observed comparisons:UserWarning")
 def test_conditional_target_rejects_an_unanswered_non_gtum_unit():
     import pandas as pd
 

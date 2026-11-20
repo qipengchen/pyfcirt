@@ -207,6 +207,7 @@ def test_fixed_generation_rejects_changing_existing_calibration_conditions(
         )
 
 
+@pytest.mark.filterwarnings("ignore:^Statements without observed comparisons:UserWarning")
 def test_simulation_preserves_recorded_nonresponses_and_joint_origins():
     source = fc.FCInput(
         "[traits]\nA ~ a b c\n[blocks]\ntriplet ~ a b c",
@@ -393,7 +394,8 @@ def gtum_block_effect_model():
         response_format=None,
         scale=fc.CategoryScale((0, 1, 2)),
     )
-    return fc.Model(fc.PreparedInputs.from_inputs(source))
+    with pytest.warns(UserWarning, match=r"^Statements without observed comparisons: \['c'\]"):
+        return fc.Model(fc.PreparedInputs.from_inputs(source))
 
 
 def gtum_fixed_point(model):

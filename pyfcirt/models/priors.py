@@ -310,7 +310,9 @@ def prior_with_parameters(prior, *parameters, size=None):
     with config.change_flags(floatX=prior.dtype):
         if isinstance(op, SymbolicRandomVariable):
             return op.rebuild_rv(*parameters, size=size)
-        _, rebuilt = op(*parameters, size=size, return_next_rng=True)
+        _, rebuilt = op(
+            *parameters, size=size, rng=pt.random.shared_rng(seed=None), return_next_rng=True
+        )
         return rebuilt
 
 

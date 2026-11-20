@@ -485,6 +485,7 @@ def test_ordered_predictive_draws_get_native_indicator_mcse(supplied_model):
     assert ((result.PPP_mcse >= 0) | result.PPP_mcse.isnull()).all()
 
 
+@pytest.mark.filterwarnings("ignore:^Statements without observed comparisons:UserWarning")
 def test_response_checks_reject_generation_schedules_and_empty_actual_forms(monkeypatch):
     from dataclasses import replace
 
