@@ -54,7 +54,7 @@ For NVIDIA GPU sampling on Linux or WSL 2 with CUDA 13, use the CUDA extra.
 python -m pip install --pre "pyfcirt[cuda13]"
 ```
 
-For conda, Docker, or CUDA 12, see the [Installation guide](https://qipengchen.github.io/pyfcirt/installation.html).
+For conda, Docker, or the CUDA 12 pip extra, see the [Installation guide](https://qipengchen.github.io/pyfcirt/installation.html).
 
 ## Your first analysis
 
