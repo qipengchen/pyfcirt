@@ -1,0 +1,41 @@
+package:
+  name: pyfcirt
+  version: "{{ environ['PYFCIRT_RELEASE_VERSION'] }}"
+
+source:
+  path: ../..
+
+build:
+  number: 0
+  noarch: python
+  script: "{{ PYTHON }} -m pip install . --no-deps --no-build-isolation -vv"
+
+requirements:
+  host:
+    - python >=3.12
+    - pip
+    - hatchling >=1.26,<2
+  run:
+    - python >=3.12
+    - pymc >=6.4.0,<7
+    - pytensor >=3.3.7,<4
+    - jax >=0.12.1
+    - blackjax >=1.5,<1.6
+    - fastprogress
+    - optax >=0.2.8,<0.3
+    - arviz >=1,<2
+    - arviz-stats >=1,<2
+    - numpy >=2
+    - scipy >=1.13
+    - pandas >=2.2
+    - xarray >=2025.1
+
+about:
+  home: https://github.com/qipengchen/pyfcirt
+  license: MIT AND Apache-2.0
+  license_file:
+    - LICENSE
+    - LICENSES/JAX-Apache-2.0.txt
+    - NOTICE
+    - pyfcirt/_example_data/studies/carelessness_big_five/LICENSE-CC-BY-4.0.txt
+  summary: Bayesian forced-choice IRT modeling with PyMC and ArviZ

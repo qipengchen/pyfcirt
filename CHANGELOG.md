@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0b1
+
+- Prepare the first public beta, including CPU distribution and installation checks.
+
 ## Input names and response formats
 
 - Create `Model()`, add response tables with `add_fc()` and/or `add_items()`,
