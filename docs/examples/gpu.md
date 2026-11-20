@@ -14,7 +14,9 @@ image with `--gpus all`. To use CUDA 12 through pip, install:
 python -m pip install --pre "pyfcirt[cuda12]"
 ```
 
-If you encounter compatibility issues, a different CUDA version may help.
+If JAX cannot initialize the GPU on WSL 2, rerun the CUDA 13 pip command from
+the [installation section](../guide/getting_started.md#installation) in the
+same environment to use CUDA Runtime `13.0.96`.
 
 Verify that JAX lists a CUDA device. For Docker, pass the command after the image name.
 
