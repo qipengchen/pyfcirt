@@ -42,13 +42,14 @@ forced-choice, Likert, and dichotomous models.
 
 ## Installation
 
-Use Python 3.12 or newer. Install from GitHub:
+Use Python 3.12 or later. Once the beta is published, install it from PyPI.
 
 ```console
-python -m pip install "pyfcirt[plots,io,covariates] @ https://github.com/qipengchen/pyfcirt/archive/refs/heads/main.zip"
+python -m pip install --pre "pyfcirt[plots,io,covariates]"
 ```
 
-This includes plotting, NetCDF saving and covariate formulas.
+This includes plotting, NetCDF saving, and covariate formulas. For other
+installation options, see the [Installation guide](https://qipengchen.github.io/pyfcirt/installation.html).
 
 ## Your first analysis
 
