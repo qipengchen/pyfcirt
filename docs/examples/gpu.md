@@ -14,6 +14,8 @@ image with `--gpus all`. To use CUDA 12 through pip, install:
 python -m pip install --pre "pyfcirt[cuda12]"
 ```
 
+If you encounter compatibility issues, a different CUDA version may help.
+
 Verify that JAX lists a CUDA device. For Docker, pass the command after the image name.
 
 ```console
