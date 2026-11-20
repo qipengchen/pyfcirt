@@ -51,15 +51,7 @@ docs = ["sphinx", "pydata-sphinx-theme>=0.16,<1", "sphinx-design>=0.8,<1", "myst
 packages = ["pyfcirt"]
 
 [tool.hatch.build.targets.sdist]
-exclude = [
-    "/AGENTS.md",
-    "/PLAN.md",
-    "/.agent",
-    "/.agents",
-    "/results",
-    "/docs/_static/examples/tirt_study_fit.zip",
-    "/docs/_static/examples/saved_1pl.zip",
-]
+only-include = ["pyfcirt", "CHANGELOG.md", "LICENSE", "LICENSES", "NOTICE", "README.md", "pyproject.toml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
