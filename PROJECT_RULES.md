@@ -210,10 +210,11 @@ python -m ruff format --check pyfcirt/data/encoding.py tests/data/test_encoding.
 - A side chat completes its scoped work, updates contracts, runs affected checks,
   commits the task's changes, pushes the branch and creates/updates a draft cloud
   PR. Then hand off the exact revision and stop editing until ownership returns.
-- Write PR titles, descriptions and comments in English. Explain why, what and
-  useful before/after behavior using verified examples. Do not emphasize agent
-  identity, narrate tools or add a separate limitations section. Report validation
-  gaps honestly in the handoff and relevant review notes.
+- Write PR titles, descriptions and comments in English. Use `Purpose` for the
+  section that explains why the change is needed. Describe what changed and useful
+  before/after behavior using verified examples. Do not emphasize agent identity,
+  narrate tools or add a separate limitations section. Report validation gaps
+  honestly in the handoff and relevant review notes.
 - Parameter-contract PRs must show an actual posterior `idata` tree, variable
   dimensions, representative auxiliary coordinates, fixed/shared metadata and
   pooled likelihood observation origins. State the input and actual run that
