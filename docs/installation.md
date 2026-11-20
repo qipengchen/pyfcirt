@@ -38,11 +38,11 @@ conda activate pyfcirt-beta
 python -c "import pyfcirt as fc; assert fc.__version__ == '0.1.0b1'; print(fc.__version__)"
 ```
 
-The beta container tags are `0.1.0b1-cpu` and `0.1.0b1-cuda13`.
-Use an NVIDIA Docker host with a CUDA 13-compatible driver for the GPU image.
+The beta container tags are `0.1.0b1-cpu` and `0.1.0b1-cuda12`.
+Use an NVIDIA Docker host with a CUDA 12-compatible driver for the GPU image.
 Confirm that JAX selects the GPU inside the container.
 
 ```console
 docker run --rm ghcr.io/qipengchen/pyfcirt:0.1.0b1-cpu python -c "import pyfcirt; print(pyfcirt.__version__)"
-docker run --rm --gpus all ghcr.io/qipengchen/pyfcirt:0.1.0b1-cuda13 python -c "import pyfcirt, jax; assert jax.default_backend() == 'gpu'; print(jax.devices())"
+docker run --rm --gpus all ghcr.io/qipengchen/pyfcirt:0.1.0b1-cuda12 python -c "import pyfcirt, jax; assert jax.default_backend() == 'gpu'; print(jax.devices())"
 ```

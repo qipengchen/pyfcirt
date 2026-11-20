@@ -115,9 +115,9 @@ jobs:
           - tag: cpu
             jax-platform: cpu
             extras: ''
-          - tag: cuda13
+          - tag: cuda12
             jax-platform: cuda,cpu
-            extras: '[cuda13]'
+            extras: '[cuda12]'
     env:
       VERSION: ${{ needs.python.outputs.version }}
       IMAGE_KIND: ${{ matrix.tag }}
@@ -140,9 +140,9 @@ jobs:
           image="ghcr.io/qipengchen/pyfcirt:$VERSION-$IMAGE_KIND"
           docker build -t "$image" --build-arg JAX_PLATFORM="$JAX_PLATFORM" \
             --build-arg PYFCIRT_EXTRAS="$PYFCIRT_EXTRAS" "$context"
-          if [ "$IMAGE_KIND" = cuda13 ]; then
+          if [ "$IMAGE_KIND" = cuda12 ]; then
             docker run --rm -e JAX_PLATFORMS=cpu "$image" python -c \
-              'from importlib.metadata import version; print(version("jax-cuda13-plugin"))'
+              'from importlib.metadata import version; print(version("jax-cuda12-plugin"))'
           fi
           docker run --rm -i -e JAX_PLATFORMS=cpu "$image" python - "$VERSION" < scripts/release_smoke.py
           docker save "$image" | gzip > "$RUNNER_TEMP/pyfcirt-$IMAGE_KIND.tar.gz"
@@ -195,7 +195,7 @@ jobs:
       packages: write
     strategy:
       matrix:
-        tag: [cpu, cuda13]
+        tag: [cpu, cuda12]
     env:
       VERSION: ${{ needs.python.outputs.version }}
       IMAGE_KIND: ${{ matrix.tag }}
