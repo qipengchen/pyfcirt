@@ -1,5 +1,7 @@
 """Bayesian forced-choice analysis with native PyMC graphs and JAX kernels."""
 
+from importlib.metadata import version as _distribution_version
+
 # Apply precision defaults before numerical model components are imported.
 from pyfcirt.config import set_platform
 
@@ -59,7 +61,7 @@ from pyfcirt.scoring import score, score_model
 from pyfcirt.scoring.approximation import PosteriorApproximation
 from pyfcirt.simulation import simulate
 
-__version__ = "0.1.0.dev0"
+__version__ = _distribution_version("pyfcirt")
 
 __all__ = [
     "set_platform",
