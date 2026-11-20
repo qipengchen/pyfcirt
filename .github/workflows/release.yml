@@ -121,9 +121,9 @@ jobs:
           - tag: cpu
             jax-platform: cpu
             extras: ''
-          - tag: cuda12
+          - tag: cuda13
             jax-platform: cuda,cpu
-            extras: '[cuda12]'
+            extras: '[cuda13]'
     env:
       VERSION: ${{ needs.python.outputs.version }}
       IMAGE_KIND: ${{ matrix.tag }}
@@ -146,9 +146,9 @@ jobs:
           image="ghcr.io/qipengchen/pyfcirt:$VERSION-$IMAGE_KIND"
           docker build -t "$image" --build-arg JAX_PLATFORM="$JAX_PLATFORM" \
             --build-arg PYFCIRT_EXTRAS="$PYFCIRT_EXTRAS" "$context"
-          if [ "$IMAGE_KIND" = cuda12 ]; then
+          if [ "$IMAGE_KIND" = cuda13 ]; then
             docker run --rm -e JAX_PLATFORMS=cpu "$image" python -c \
-              'from importlib.metadata import version; print(version("jax-cuda12-plugin"))'
+              'from importlib.metadata import version; print(version("jax-cuda13-plugin"))'
           fi
           docker run --rm -i -e JAX_PLATFORMS=cpu "$image" python - "$VERSION" < scripts/release_smoke.py
           docker save "$image" | gzip > "$RUNNER_TEMP/pyfcirt-$IMAGE_KIND.tar.gz"
@@ -201,7 +201,7 @@ jobs:
       packages: write
     strategy:
       matrix:
-        tag: [cpu, cuda12]
+        tag: [cpu, cuda13]
     env:
       VERSION: ${{ needs.python.outputs.version }}
       IMAGE_KIND: ${{ matrix.tag }}
@@ -230,9 +230,9 @@ jobs:
       - name: Create the GitHub prerelease
         run: |
           cat > release-notes.md <<'EOF'
-          First public beta of PyFCIRT. See the [installation guide](https://qipengchen.github.io/pyfcirt/installation.html) for PyPI, conda and container installation.
+          First public beta of PyFCIRT. See the [installation guide](https://qipengchen.github.io/pyfcirt/guide/getting_started.html#installation) for PyPI, conda and container installation.
 
-          The CUDA 12 candidate completed a JAX GPU computation and a short double-precision BlackJAX run on an RTX 4070 Ti SUPER under WSL 2.
+          The CUDA 13 image includes JAX GPU support for supported NVIDIA GPUs.
           EOF
           gh release create "$GITHUB_REF_NAME" --verify-tag --prerelease \
             --title "PyFCIRT $GITHUB_REF_NAME" --notes-file release-notes.md

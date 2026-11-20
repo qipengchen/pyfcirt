@@ -5,7 +5,6 @@ Bayesian forced-choice modeling in Python.
 [![Checks](https://github.com/qipengchen/pyfcirt/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/qipengchen/pyfcirt/actions/workflows/ci.yml)
 [![Coverage](https://codecov.io/gh/qipengchen/pyfcirt/branch/main/graph/badge.svg)](https://codecov.io/gh/qipengchen/pyfcirt)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
-[![Python](https://img.shields.io/badge/Python-3.12%2B-blue)](https://qipengchen.github.io/pyfcirt/installation.html)
 [![License](https://img.shields.io/badge/License-MIT%20%26%20Apache--2.0-blue)](NOTICE)
 
 <!-- quick-start-start -->
@@ -42,13 +41,41 @@ forced-choice, Likert, and dichotomous models.
 
 ## Installation
 
-Use Python 3.12 or newer. Install from GitHub:
+Use Python 3.12 or later for pip or conda. These commands install the beta release.
+
+### pip
 
 ```console
-python -m pip install "pyfcirt[plots,io,covariates] @ https://github.com/qipengchen/pyfcirt/archive/refs/heads/main.zip"
+python -m pip install --pre pyfcirt
 ```
 
-This includes plotting, NetCDF saving and covariate formulas.
+For NVIDIA GPU sampling on Linux or WSL 2:
+
+```console
+python -m pip install --pre "pyfcirt[cuda13]"
+```
+
+### conda
+
+```console
+conda install -c qipengchen/label/beta -c conda-forge pyfcirt
+```
+
+### Docker
+
+CPU:
+
+```console
+docker run --rm -it ghcr.io/qipengchen/pyfcirt:0.1.0b1-cpu
+```
+
+NVIDIA GPU (CUDA 13):
+
+```console
+docker run --rm -it --gpus all ghcr.io/qipengchen/pyfcirt:0.1.0b1-cuda13
+```
+
+See [GPU setup](https://qipengchen.github.io/pyfcirt/examples/gpu.html) for compatibility and verification.
 
 ## Your first analysis
 
@@ -110,7 +137,7 @@ your own design and read CSV or spreadsheet responses.
 ## Documentation
 
 - [Quick start](https://qipengchen.github.io/pyfcirt/guide/getting_started.html)
-- [Installation and GPU support](https://qipengchen.github.io/pyfcirt/installation.html)
+- [Installation and GPU support](https://qipengchen.github.io/pyfcirt/guide/getting_started.html#installation)
 - [API reference](https://qipengchen.github.io/pyfcirt/api.html)
 - [Examples](https://qipengchen.github.io/pyfcirt/examples.html)
 

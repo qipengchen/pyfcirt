@@ -8,7 +8,12 @@ ENV JAX_PLATFORMS=$JAX_PLATFORM \
     PYTHONUNBUFFERED=1
 
 COPY dist/*.whl /tmp/wheels/
-RUN set -- /tmp/wheels/*.whl; python -m pip install --no-cache-dir "$1$PYFCIRT_EXTRAS" \
-    && rm -rf /tmp/wheels
+# CUDA 13.0 avoids a device initialization crash on some WSL 2 drivers.
+RUN set -- /tmp/wheels/*.whl; \
+    set -- "$1$PYFCIRT_EXTRAS"; \
+    if [ "$PYFCIRT_EXTRAS" = "[cuda13]" ]; then \
+        set -- "$@" nvidia-cuda-runtime==13.0.96; \
+    fi; \
+    python -m pip install --no-cache-dir "$@" && rm -rf /tmp/wheels
 
 CMD ["python"]
