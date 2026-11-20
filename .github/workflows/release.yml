@@ -1,0 +1,238 @@
+name: Release candidates
+
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/release.yml'
+      - 'packaging/**'
+      - 'scripts/release_smoke.py'
+      - 'pyproject.toml'
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish all three artifacts from the matching version tag
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  JAX_PLATFORMS: cpu
+  PYTENSOR_FLAGS: mode=FAST_COMPILE,cxx=
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Verify version and publishing ref
+        id: version
+        env:
+          PUBLISH: ${{ github.event_name == 'push' || inputs.publish || false }}
+        run: |
+          python - <<'PY'
+          import os
+          import tomllib
+
+          with open("pyproject.toml", "rb") as stream:
+              version = tomllib.load(stream)["project"]["version"]
+          if os.environ["PUBLISH"] == "true":
+              expected = f"refs/tags/v{version}"
+              if os.environ["GITHUB_REF"] != expected:
+                  raise SystemExit(f"Publishing requires {expected}")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as stream:
+              print(f"version={version}", file=stream)
+          PY
+          if [ "$PUBLISH" = true ]; then
+            main="$(git ls-remote origin refs/heads/main | cut -f1)"
+            test "$main" = "$GITHUB_SHA"
+          fi
+      - name: Build wheel and source distribution
+        run: |
+          python -m pip install build twine
+          python -m build
+          python -m twine check dist/*
+      - name: Smoke-test the wheel and source distribution in clean environments
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          for package in "$PWD"/dist/*; do
+            work="$(mktemp -d)"
+            python -m venv "$work/venv"
+            "$work/venv/bin/python" -m pip install "$package"
+            (cd "$work" && "$work/venv/bin/python" "$GITHUB_WORKSPACE/scripts/release_smoke.py" "$VERSION")
+          done
+      - uses: actions/upload-artifact@v6
+        with:
+          name: python-dist
+          path: dist/
+          if-no-files-found: error
+
+  conda:
+    runs-on: ubuntu-latest
+    needs: python
+    defaults:
+      run:
+        shell: bash -el {0}
+    env:
+      PYFCIRT_RELEASE_VERSION: ${{ needs.python.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: conda-incubator/setup-miniconda@v4
+        with:
+          activate-environment: release
+          python-version: '3.12'
+          channels: conda-forge
+          channel-priority: strict
+      - name: Build and install the local conda package
+        run: |
+          conda install --yes --override-channels -c conda-forge conda-build
+          "$CONDA_PREFIX/bin/conda-build" packaging/conda --python 3.12 --no-anaconda-upload --override-channels -c conda-forge \
+            --output-folder "$RUNNER_TEMP/conda"
+          conda create --yes -n smoke --override-channels -c "file://$RUNNER_TEMP/conda" \
+            -c conda-forge "python=3.12" "pyfcirt=$PYFCIRT_RELEASE_VERSION"
+          cd "$RUNNER_TEMP"
+          conda run -n smoke python "$GITHUB_WORKSPACE/scripts/release_smoke.py" "$PYFCIRT_RELEASE_VERSION"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: conda-dist
+          path: ${{ runner.temp }}/conda/noarch/pyfcirt-*.conda
+          if-no-files-found: error
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: python
+    strategy:
+      matrix:
+        include:
+          - tag: cpu
+            jax-platform: cpu
+            extras: ''
+          - tag: cuda12
+            jax-platform: cuda,cpu
+            extras: '[cuda12]'
+    env:
+      VERSION: ${{ needs.python.outputs.version }}
+      IMAGE_KIND: ${{ matrix.tag }}
+      JAX_PLATFORM: ${{ matrix.jax-platform }}
+      PYFCIRT_EXTRAS: ${{ matrix.extras }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v7
+        with:
+          name: python-dist
+          path: dist
+      - name: Build and smoke-test the image
+        run: |
+          context="$(mktemp -d)"
+          mkdir "$context/dist"
+          cp packaging/Dockerfile "$context/"
+          cp dist/*.whl "$context/dist/"
+          image="ghcr.io/qipengchen/pyfcirt:$VERSION-$IMAGE_KIND"
+          docker build -t "$image" --build-arg JAX_PLATFORM="$JAX_PLATFORM" \
+            --build-arg PYFCIRT_EXTRAS="$PYFCIRT_EXTRAS" "$context"
+          if [ "$IMAGE_KIND" = cuda12 ]; then
+            docker run --rm -e JAX_PLATFORMS=cpu "$image" python -c \
+              'from importlib.metadata import version; print(version("jax-cuda12-plugin"))'
+          fi
+          docker run --rm -i -e JAX_PLATFORMS=cpu "$image" python - "$VERSION" < scripts/release_smoke.py
+          docker save "$image" | gzip > "$RUNNER_TEMP/pyfcirt-$IMAGE_KIND.tar.gz"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: docker-${{ matrix.tag }}
+          path: ${{ runner.temp }}/pyfcirt-${{ matrix.tag }}.tar.gz
+          compression-level: 0
+          if-no-files-found: error
+
+  publish-pypi:
+    if: startsWith(github.ref, 'refs/tags/v') && (github.event_name == 'push' || inputs.publish)
+    needs: [python, conda, docker]
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          name: python-dist
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  publish-conda-test:
+    if: startsWith(github.ref, 'refs/tags/v') && (github.event_name == 'push' || inputs.publish)
+    needs: [python, conda, docker]
+    runs-on: ubuntu-latest
+    environment: conda-test
+    steps:
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v7
+        with:
+          name: conda-dist
+          path: dist
+      - name: Upload to the Anaconda beta label
+        env:
+          ANACONDA_TOKEN: ${{ secrets.ANACONDA_TOKEN }}
+        run: |
+          python -m pip install anaconda-client
+          anaconda --token "$ANACONDA_TOKEN" upload --user qipengchen --label beta dist/pyfcirt-*.conda
+
+  publish-docker:
+    if: startsWith(github.ref, 'refs/tags/v') && (github.event_name == 'push' || inputs.publish)
+    needs: [python, conda, docker]
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    strategy:
+      matrix:
+        tag: [cpu, cuda12]
+    env:
+      VERSION: ${{ needs.python.outputs.version }}
+      IMAGE_KIND: ${{ matrix.tag }}
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          name: docker-${{ matrix.tag }}
+      - name: Push the built image to GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker load -i "pyfcirt-$IMAGE_KIND.tar.gz"
+          docker push "ghcr.io/qipengchen/pyfcirt:$VERSION-$IMAGE_KIND"
+
+  github-prerelease:
+    if: startsWith(github.ref, 'refs/tags/v') && (github.event_name == 'push' || inputs.publish)
+    needs: [publish-pypi, publish-conda-test, publish-docker]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Create the GitHub prerelease
+        run: |
+          cat > release-notes.md <<'EOF'
+          First public beta of PyFCIRT. See the [installation guide](https://qipengchen.github.io/pyfcirt/installation.html) for PyPI, conda and container installation.
+
+          The CUDA 12 candidate completed a JAX GPU computation and a short double-precision BlackJAX run on an RTX 4070 Ti SUPER under WSL 2.
+          EOF
+          gh release create "$GITHUB_REF_NAME" --verify-tag --prerelease \
+            --title "PyFCIRT $GITHUB_REF_NAME" --notes-file release-notes.md

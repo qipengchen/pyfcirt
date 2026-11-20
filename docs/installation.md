@@ -22,3 +22,36 @@ Continue with the [Quick start](guide/getting_started.md).
 On a compatible Linux machine, follow the [GPU setup](examples/gpu.md).
 For installation or import errors, see [Troubleshooting](howto/troubleshooting.md).
 Sampler and precision settings belong in the [fitting guide](reference/generated/pyfcirt.Model.fit.md).
+
+## Beta packages
+
+Once version `0.1.0b1` is published, install the same beta from PyPI or
+the Anaconda.org beta channel.
+
+```console
+python -m pip install "pyfcirt==0.1.0b1"
+```
+
+```console
+conda create -n pyfcirt-beta --override-channels -c qipengchen/label/beta -c conda-forge python=3.12 pyfcirt=0.1.0b1
+conda activate pyfcirt-beta
+python -c "import pyfcirt as fc; assert fc.__version__ == '0.1.0b1'; print(fc.__version__)"
+```
+
+For a native Python GPU installation, use the `cuda12` or `cuda13` extra
+to select the corresponding JAX CUDA packages. See the
+[JAX driver and hardware requirements](https://docs.jax.dev/en/latest/installation.html#nvidia-gpu).
+For example, install CUDA 13 support with:
+
+```console
+python -m pip install "pyfcirt[cuda13]==0.1.0b1"
+```
+
+The beta container tags are `0.1.0b1-cpu` and `0.1.0b1-cuda12`.
+Use an NVIDIA Docker host with a CUDA 12-compatible driver for the GPU image.
+Confirm that JAX selects the GPU inside the container.
+
+```console
+docker run --rm ghcr.io/qipengchen/pyfcirt:0.1.0b1-cpu python -c "import pyfcirt; print(pyfcirt.__version__)"
+docker run --rm --gpus all ghcr.io/qipengchen/pyfcirt:0.1.0b1-cuda12 python -c "import pyfcirt, jax; assert jax.default_backend() == 'gpu'; print(jax.devices())"
+```
