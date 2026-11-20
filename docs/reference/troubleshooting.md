@@ -4,7 +4,7 @@
 
 Import `sys` and call `print(sys.executable)` to check the active interpreter. Install with
 that interpreter and select the same notebook kernel. Follow
-[Installation](../installation.md).
+[Installation](../guide/getting_started.md#installation).
 
 ## A response or ID is rejected
 

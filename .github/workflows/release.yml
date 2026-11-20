@@ -230,7 +230,7 @@ jobs:
       - name: Create the GitHub prerelease
         run: |
           cat > release-notes.md <<'EOF'
-          First public beta of PyFCIRT. See the [installation guide](https://qipengchen.github.io/pyfcirt/installation.html) for PyPI, conda and container installation.
+          First public beta of PyFCIRT. See the [installation guide](https://qipengchen.github.io/pyfcirt/guide/getting_started.html#installation) for PyPI, conda and container installation.
 
           The CUDA 13 image includes JAX GPU support for supported NVIDIA GPUs.
           EOF
