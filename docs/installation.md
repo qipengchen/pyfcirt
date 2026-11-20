@@ -1,7 +1,7 @@
 # Installation
 
 For pip or conda, use Python 3.12 or later.
-The registry commands below become available when the beta is published.
+Until the beta is published, [install from GitHub](#from-github).
 
 ## pip
 
@@ -9,17 +9,19 @@ The registry commands below become available when the beta is published.
 python -m pip install --pre "pyfcirt[plots,io,covariates]"
 ```
 
-The extras add plotting, NetCDF saving, and covariate formulas. For GPU
-sampling with JAX, add `cuda12` or `cuda13` to the extras. See the
-[GPU setup](examples/gpu.md) for driver requirements.
+This command includes plotting, NetCDF saving, and covariate formulas. For
+NVIDIA GPU sampling with JAX, add the `cuda12` or `cuda13` extra. For driver
+requirements, see [GPU setup](examples/gpu.md).
 
-Before the beta is available, install from GitHub.
+### From GitHub
 
 ```console
 python -m pip install "pyfcirt[plots,io,covariates] @ https://github.com/qipengchen/pyfcirt/archive/refs/heads/main.zip"
 ```
 
 ## conda
+
+Install into your current conda environment.
 
 ```console
 conda install -c qipengchen/label/beta -c conda-forge pyfcirt
@@ -37,11 +39,18 @@ docker run --rm -it ghcr.io/qipengchen/pyfcirt:0.1.0b1-cpu
 
 **NVIDIA GPU (CUDA 12)**
 
+Use a Docker host configured for NVIDIA GPU access.
+
 ```console
 docker run --rm -it --gpus all ghcr.io/qipengchen/pyfcirt:0.1.0b1-cuda12
 ```
 
 ## Quick check
 
-Run `import pyfcirt` in Python, then continue to the
-[Quick start](guide/getting_started.md).
+Open Python and import PyFCIRT.
+
+```python
+import pyfcirt
+```
+
+Continue with the [Quick start](guide/getting_started.md).
