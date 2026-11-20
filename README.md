@@ -45,11 +45,16 @@ forced-choice, Likert, and dichotomous models.
 Use Python 3.12 or later. Once the beta is published, install it from PyPI.
 
 ```console
-python -m pip install --pre "pyfcirt[plots,io,covariates]"
+python -m pip install --pre pyfcirt
 ```
 
-This includes plotting, NetCDF saving, and covariate formulas. For other
-installation options, see the [Installation guide](https://qipengchen.github.io/pyfcirt/installation.html).
+For NVIDIA GPU sampling on Linux or WSL 2 with CUDA 13, use the CUDA extra.
+
+```console
+python -m pip install --pre "pyfcirt[cuda13]"
+```
+
+For conda, Docker, or CUDA 12, see the [Installation guide](https://qipengchen.github.io/pyfcirt/installation.html).
 
 ## Your first analysis
 
