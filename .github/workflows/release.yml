@@ -180,12 +180,12 @@ jobs:
         with:
           name: conda-dist
           path: dist
-      - name: Upload to the Anaconda test label
+      - name: Upload to the Anaconda beta label
         env:
           ANACONDA_TOKEN: ${{ secrets.ANACONDA_TOKEN }}
         run: |
           python -m pip install anaconda-client
-          anaconda --token "$ANACONDA_TOKEN" upload --user qipengchen --label test dist/pyfcirt-*.conda
+          anaconda --token "$ANACONDA_TOKEN" upload --user qipengchen --label beta dist/pyfcirt-*.conda
 
   publish-docker:
     if: github.event_name == 'workflow_dispatch' && inputs.publish && startsWith(github.ref, 'refs/tags/v')
