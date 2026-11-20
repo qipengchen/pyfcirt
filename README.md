@@ -49,10 +49,10 @@ Use Python 3.12 or later for pip or conda. These commands install the beta relea
 python -m pip install --pre pyfcirt
 ```
 
-For NVIDIA GPU sampling on Linux or WSL 2:
+For NVIDIA GPU sampling on Linux or WSL 2, install PyFCIRT with CUDA Runtime `13.0.96`.
 
 ```console
-python -m pip install --pre "pyfcirt[cuda13]"
+python -m pip install --pre "pyfcirt[cuda13]" "nvidia-cuda-runtime==13.0.96"
 ```
 
 ### conda
