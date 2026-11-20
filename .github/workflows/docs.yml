@@ -1,0 +1,79 @@
+name: Documentation
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'README.md'
+      - 'pyfcirt/**'
+      - '.github/workflows/docs.yml'
+      - 'pyproject.toml'
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the main branch documentation to GitHub Pages
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: documentation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      JAX_PLATFORMS: cpu
+      JAX_ENABLE_X64: 'true'
+      PYTENSOR_FLAGS: mode=FAST_COMPILE,cxx=,floatX=float64,traceback__limit=0
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            docs/conf.py
+      - name: Install documentation dependencies
+        run: python -m pip install -e '.[docs]'
+      # Notebook outputs are already saved; Sphinx must not run model fitting.
+      - name: Build existing Sphinx documentation
+        run: python -m sphinx -W --keep-going -D nb_execution_mode=off -b html docs _build/html
+      - name: Upload downloadable HTML preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: documentation-html
+          path: _build/html
+          retention-days: 7
+      - name: Upload Pages artifact
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish))
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: _build/html
+
+  deploy:
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish))
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
+      - name: Deploy GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

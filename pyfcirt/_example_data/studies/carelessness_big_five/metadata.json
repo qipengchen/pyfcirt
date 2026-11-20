@@ -1,0 +1,35 @@
+{
+  "status": "CC BY 4.0 permits redistribution; public data follows documented author analysis comparison convention; source questionnaire-specific instructions not independently located.",
+  "source": "https://github.com/rkupffer/ExploratoryAnalysesCRinMFC",
+  "source_commit": "ea756a6833cdaf73988ca66d2ef109154867f9bb",
+  "data_license": "CC-BY-4.0",
+  "license_declaration": "https://github.com/rkupffer/ExploratoryAnalysesCRinMFC/blob/main/License.txt",
+  "license_url": "https://creativecommons.org/licenses/by/4.0/",
+  "attribution": "Kupffer, Frick, and Wetzel, Detecting Careless Responding in Multidimensional Forced-Choice Questionnaires",
+  "source_sha256": {
+    "DataExploratoryAnalysesCRinMFC.csv": "016119e6b0ac5564ba61370cbc26cd89cf77654a1e1f5d612e7fe5d6747854c3",
+    "2_All_Items_Coding.csv": "382d8ad6b9bf77d63ceea05ee905ec5e8f7c8332d7b2453631872f0c7976295d",
+    "License.txt": "011faf5c9a6fa75233c8f710a01d8d9b5ab7bdf432d4c00a5bb0c1caae7f8063"
+  },
+  "transformations": "Only MT columns, renamed IDs as one-based row indices, melt to long statement-level raw rank; BT numerical design mapping; no item text, other subtests or demographics. Preserve missing ranks. Small sample is first 100 source rows, not a random or independent sample.",
+  "counts": {
+    "people_full": 1169,
+    "people_small": 100,
+    "blocks": 20,
+    "statements": 60,
+    "missing_rank_entries": 1190
+  },
+  "interpretation": "Rank values are original observed statement-level rank codes; author comparison convention treats smaller rank as preferred but source questionnaire-specific instructions not independently located. Do not treat partial rank as complete or silently infer missing ranks. Same cohort across subtests; no duplication as independent samples. Distinct block-position statement identifiers do not assert identity across blocks.",
+  "author_analysis": "https://github.com/rkupffer/ExploratoryAnalysesCRinMFC/blob/main/2_binary_coding_mplus_prep.R",
+  "author_recode": "https://github.com/susanne-frick/TirtAutomation/blob/master/R/retri.R",
+  "comparison_validation": "reTri defines first preferred as second rank minus first rank greater than zero; our comparison response is identical for all complete and partial observed pairs, with NA when either rank is missing. 70,140 full pairs (1,476 missing); 6,000 small pairs (49 missing). Roundtrip current public FCData; no people or blocks dropped.",
+  "identifier_provenance": "B01_1 denotes first position in original MT01 block; use within-block occurrence identifiers; repeated stimulus identity across blocks is not asserted.",
+  "synthetic": false,
+  "default_n_persons": 1169,
+  "stored_sample_sizes": [
+    50,
+    100,
+    500,
+    1169
+  ]
+}

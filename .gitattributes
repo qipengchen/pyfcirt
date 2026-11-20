@@ -1,0 +1,3 @@
+# Checksummed data resources must retain identical bytes across platforms.
+pyfcirt/_example_data/studies/** -text
+pyfcirt/_example_data/*/*.csv text eol=lf

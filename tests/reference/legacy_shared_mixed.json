@@ -1,0 +1,1969 @@
+{
+  "spec": {
+    "model_id": "mixed_fc",
+    "model_version": "1",
+    "settings": {
+      "mixed_schema_version": "1",
+      "experimental": "mixed_blocks",
+      "parameterization": "centered",
+      "priors": {
+        "trait_correlation": {
+          "name": "LKJCorr",
+          "parameters": {
+            "eta": 1.0
+          }
+        }
+      },
+      "default_family": {
+        "id": "mgppm",
+        "options": {},
+        "resolved_priors": {
+          "loading_magnitude": {
+            "name": "LogNormal",
+            "parameters": {
+              "mu": 0.0,
+              "sigma": 0.5
+            }
+          },
+          "ranking_intercept": {
+            "name": "ZeroSumNormal",
+            "parameters": {
+              "sigma": 2.0
+            }
+          },
+          "graded_intercept": {
+            "name": "Normal",
+            "parameters": {
+              "mu": 0.0,
+              "sigma": 2.0
+            }
+          }
+        }
+      },
+      "family_configs": [
+        {
+          "block_id": "anchor",
+          "family": {
+            "id": "mgppm",
+            "options": {},
+            "resolved_priors": {
+              "loading_magnitude": {
+                "name": "LogNormal",
+                "parameters": {
+                  "mu": 0.0,
+                  "sigma": 0.5
+                }
+              },
+              "ranking_intercept": {
+                "name": "ZeroSumNormal",
+                "parameters": {
+                  "sigma": 2.0
+                }
+              },
+              "graded_intercept": {
+                "name": "Normal",
+                "parameters": {
+                  "mu": 0.0,
+                  "sigma": 2.0
+                }
+              }
+            }
+          }
+        },
+        {
+          "block_id": 41,
+          "family": {
+            "id": "2plm_rank",
+            "options": {},
+            "resolved_priors": {
+              "loading_magnitude": {
+                "name": "LogNormal",
+                "parameters": {
+                  "mu": 0.0,
+                  "sigma": 0.5
+                }
+              },
+              "ranking_intercept": {
+                "name": "ZeroSumNormal",
+                "parameters": {
+                  "sigma": 2.0
+                }
+              }
+            }
+          }
+        },
+        {
+          "block_id": "pick",
+          "family": {
+            "id": "mgppm",
+            "options": {},
+            "resolved_priors": {
+              "loading_magnitude": {
+                "name": "LogNormal",
+                "parameters": {
+                  "mu": 0.0,
+                  "sigma": 0.5
+                }
+              },
+              "ranking_intercept": {
+                "name": "ZeroSumNormal",
+                "parameters": {
+                  "sigma": 2.0
+                }
+              },
+              "graded_intercept": {
+                "name": "Normal",
+                "parameters": {
+                  "mu": 0.0,
+                  "sigma": 2.0
+                }
+              }
+            }
+          }
+        },
+        {
+          "block_id": "mole",
+          "family": {
+            "id": "2plm_rank",
+            "options": {},
+            "resolved_priors": {
+              "loading_magnitude": {
+                "name": "LogNormal",
+                "parameters": {
+                  "mu": 0.0,
+                  "sigma": 0.5
+                }
+              },
+              "ranking_intercept": {
+                "name": "ZeroSumNormal",
+                "parameters": {
+                  "sigma": 2.0
+                }
+              }
+            }
+          }
+        },
+        {
+          "block_id": -8,
+          "family": {
+            "id": "mgppm",
+            "options": {},
+            "resolved_priors": {
+              "loading_magnitude": {
+                "name": "LogNormal",
+                "parameters": {
+                  "mu": 0.0,
+                  "sigma": 0.5
+                }
+              },
+              "ranking_intercept": {
+                "name": "ZeroSumNormal",
+                "parameters": {
+                  "sigma": 2.0
+                }
+              },
+              "graded_intercept": {
+                "name": "Normal",
+                "parameters": {
+                  "mu": 0.0,
+                  "sigma": 2.0
+                }
+              }
+            }
+          }
+        }
+      ],
+      "parameter_owners": [
+        {
+          "id": "owner0",
+          "block_ids": [
+            "anchor",
+            41,
+            "pick",
+            "mole",
+            -8
+          ],
+          "statement_ids": [
+            "a",
+            2,
+            "c",
+            4,
+            "e",
+            6,
+            "g",
+            8,
+            "i",
+            10
+          ],
+          "family": {
+            "id": "mgppm",
+            "options": {},
+            "resolved_priors": {
+              "loading_magnitude": {
+                "name": "LogNormal",
+                "parameters": {
+                  "mu": 0.0,
+                  "sigma": 0.5
+                }
+              },
+              "ranking_intercept": {
+                "name": "ZeroSumNormal",
+                "parameters": {
+                  "sigma": 2.0
+                }
+              },
+              "graded_intercept": {
+                "name": "Normal",
+                "parameters": {
+                  "mu": 0.0,
+                  "sigma": 2.0
+                }
+              }
+            }
+          }
+        }
+      ],
+      "measurement_components": [
+        {
+          "id": "component0",
+          "block_ids": [
+            "anchor",
+            "pick",
+            -8
+          ],
+          "owner": "owner0"
+        },
+        {
+          "id": "component1",
+          "block_ids": [
+            41,
+            "mole"
+          ],
+          "owner": "owner0"
+        }
+      ],
+      "response_contract": "mixed"
+    },
+    "components": [
+      {
+        "id": "component0::mgppm_rank_k3",
+        "family": "MGPPM",
+        "task": "rank",
+        "block_ids": [
+          "anchor"
+        ],
+        "observed_variable": "component0::response_mgppm_rank_k3",
+        "events": [
+          [
+            1,
+            2,
+            3
+          ],
+          [
+            1,
+            3,
+            2
+          ],
+          [
+            2,
+            1,
+            3
+          ],
+          [
+            2,
+            3,
+            1
+          ],
+          [
+            3,
+            1,
+            2
+          ],
+          [
+            3,
+            2,
+            1
+          ]
+        ],
+        "scores": [
+          [
+            2.0,
+            1.0,
+            0.0
+          ],
+          [
+            2.0,
+            0.0,
+            1.0
+          ],
+          [
+            1.0,
+            2.0,
+            0.0
+          ],
+          [
+            0.0,
+            2.0,
+            1.0
+          ],
+          [
+            1.0,
+            0.0,
+            2.0
+          ],
+          [
+            0.0,
+            1.0,
+            2.0
+          ]
+        ],
+        "encoding_version": "1",
+        "response_contract": "selection_order",
+        "is_composite": false,
+        "likelihood_kind": "conditional_response",
+        "parameter_owner": "owner0"
+      },
+      {
+        "id": "component0::mgppm_pick_k4",
+        "family": "MGPPM",
+        "task": "pick",
+        "block_ids": [
+          "pick"
+        ],
+        "observed_variable": "component0::response_mgppm_pick_k4",
+        "events": [
+          [
+            1,
+            null,
+            null,
+            null
+          ],
+          [
+            2,
+            null,
+            null,
+            null
+          ],
+          [
+            3,
+            null,
+            null,
+            null
+          ],
+          [
+            4,
+            null,
+            null,
+            null
+          ]
+        ],
+        "scores": [
+          [
+            3.0,
+            2.0,
+            1.0,
+            0.0
+          ],
+          [
+            3.0,
+            2.0,
+            0.0,
+            1.0
+          ],
+          [
+            3.0,
+            1.0,
+            2.0,
+            0.0
+          ],
+          [
+            3.0,
+            0.0,
+            2.0,
+            1.0
+          ],
+          [
+            3.0,
+            1.0,
+            0.0,
+            2.0
+          ],
+          [
+            3.0,
+            0.0,
+            1.0,
+            2.0
+          ],
+          [
+            2.0,
+            3.0,
+            1.0,
+            0.0
+          ],
+          [
+            2.0,
+            3.0,
+            0.0,
+            1.0
+          ],
+          [
+            1.0,
+            3.0,
+            2.0,
+            0.0
+          ],
+          [
+            0.0,
+            3.0,
+            2.0,
+            1.0
+          ],
+          [
+            1.0,
+            3.0,
+            0.0,
+            2.0
+          ],
+          [
+            0.0,
+            3.0,
+            1.0,
+            2.0
+          ],
+          [
+            2.0,
+            1.0,
+            3.0,
+            0.0
+          ],
+          [
+            2.0,
+            0.0,
+            3.0,
+            1.0
+          ],
+          [
+            1.0,
+            2.0,
+            3.0,
+            0.0
+          ],
+          [
+            0.0,
+            2.0,
+            3.0,
+            1.0
+          ],
+          [
+            1.0,
+            0.0,
+            3.0,
+            2.0
+          ],
+          [
+            0.0,
+            1.0,
+            3.0,
+            2.0
+          ],
+          [
+            2.0,
+            1.0,
+            0.0,
+            3.0
+          ],
+          [
+            2.0,
+            0.0,
+            1.0,
+            3.0
+          ],
+          [
+            1.0,
+            2.0,
+            0.0,
+            3.0
+          ],
+          [
+            0.0,
+            2.0,
+            1.0,
+            3.0
+          ],
+          [
+            1.0,
+            0.0,
+            2.0,
+            3.0
+          ],
+          [
+            0.0,
+            1.0,
+            2.0,
+            3.0
+          ]
+        ],
+        "encoding_version": "1",
+        "response_contract": "selection_order",
+        "is_composite": false,
+        "likelihood_kind": "conditional_response",
+        "parameter_owner": "owner0"
+      },
+      {
+        "id": "component0::mgppm_rank_k2",
+        "family": "MGPPM",
+        "task": "rank",
+        "block_ids": [
+          -8
+        ],
+        "observed_variable": "component0::response_mgppm_rank_k2",
+        "events": [
+          [
+            1,
+            2
+          ],
+          [
+            2,
+            1
+          ]
+        ],
+        "scores": [
+          [
+            1.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0
+          ]
+        ],
+        "encoding_version": "1",
+        "response_contract": "selection_order",
+        "is_composite": false,
+        "likelihood_kind": "conditional_response",
+        "parameter_owner": "owner0"
+      },
+      {
+        "id": "component1::2plm_rank_rank_k2",
+        "family": "TwoPLRank",
+        "task": "rank",
+        "block_ids": [
+          41
+        ],
+        "observed_variable": "component1::response_2plm_rank_rank_k2",
+        "events": [
+          [
+            1,
+            2
+          ],
+          [
+            2,
+            1
+          ]
+        ],
+        "scores": [
+          [
+            1.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0
+          ]
+        ],
+        "encoding_version": "1",
+        "response_contract": "selection_order",
+        "is_composite": false,
+        "likelihood_kind": "conditional_response",
+        "parameter_owner": "owner0"
+      },
+      {
+        "id": "component1::2plm_rank_mole_k3",
+        "family": "TwoPLRank",
+        "task": "mole",
+        "block_ids": [
+          "mole"
+        ],
+        "observed_variable": "component1::response_2plm_rank_mole_k3",
+        "events": [
+          [
+            1,
+            null,
+            2
+          ],
+          [
+            1,
+            null,
+            3
+          ],
+          [
+            2,
+            null,
+            1
+          ],
+          [
+            2,
+            null,
+            3
+          ],
+          [
+            3,
+            null,
+            1
+          ],
+          [
+            3,
+            null,
+            2
+          ]
+        ],
+        "scores": [
+          [
+            2.0,
+            1.0,
+            0.0
+          ],
+          [
+            2.0,
+            0.0,
+            1.0
+          ],
+          [
+            1.0,
+            2.0,
+            0.0
+          ],
+          [
+            0.0,
+            2.0,
+            1.0
+          ],
+          [
+            1.0,
+            0.0,
+            2.0
+          ],
+          [
+            0.0,
+            1.0,
+            2.0
+          ]
+        ],
+        "encoding_version": "1",
+        "response_contract": "selection_order",
+        "is_composite": false,
+        "likelihood_kind": "conditional_response",
+        "parameter_owner": "owner0"
+      }
+    ],
+    "observation_map": [
+      {
+        "obs_id": "[\"p-z\",\"anchor\"]",
+        "person_id": "p-z",
+        "block_id": "anchor",
+        "variable": "component0::response_mgppm_rank_k3",
+        "local_index": 0,
+        "task": "rank",
+        "response": [
+          3,
+          1,
+          2
+        ],
+        "parent_obs_id": "[\"p-z\",\"anchor\"]"
+      },
+      {
+        "obs_id": "[77,\"anchor\"]",
+        "person_id": 77,
+        "block_id": "anchor",
+        "variable": "component0::response_mgppm_rank_k3",
+        "local_index": 1,
+        "task": "rank",
+        "response": [
+          3,
+          1,
+          2
+        ],
+        "parent_obs_id": "[77,\"anchor\"]"
+      },
+      {
+        "obs_id": "[\"p-z\",\"pick\"]",
+        "person_id": "p-z",
+        "block_id": "pick",
+        "variable": "component0::response_mgppm_pick_k4",
+        "local_index": 0,
+        "task": "pick",
+        "response": [
+          2,
+          null,
+          null,
+          null
+        ],
+        "parent_obs_id": "[\"p-z\",\"pick\"]"
+      },
+      {
+        "obs_id": "[77,\"pick\"]",
+        "person_id": 77,
+        "block_id": "pick",
+        "variable": "component0::response_mgppm_pick_k4",
+        "local_index": 1,
+        "task": "pick",
+        "response": [
+          2,
+          null,
+          null,
+          null
+        ],
+        "parent_obs_id": "[77,\"pick\"]"
+      },
+      {
+        "obs_id": "[\"p-z\",-8]",
+        "person_id": "p-z",
+        "block_id": -8,
+        "variable": "component0::response_mgppm_rank_k2",
+        "local_index": 0,
+        "task": "rank",
+        "response": [
+          1,
+          2
+        ],
+        "parent_obs_id": "[\"p-z\",-8]"
+      },
+      {
+        "obs_id": "[77,-8]",
+        "person_id": 77,
+        "block_id": -8,
+        "variable": "component0::response_mgppm_rank_k2",
+        "local_index": 1,
+        "task": "rank",
+        "response": [
+          1,
+          2
+        ],
+        "parent_obs_id": "[77,-8]"
+      },
+      {
+        "obs_id": "[\"p-z\",41]",
+        "person_id": "p-z",
+        "block_id": 41,
+        "variable": "component1::response_2plm_rank_rank_k2",
+        "local_index": 0,
+        "task": "rank",
+        "response": [
+          2,
+          1
+        ],
+        "parent_obs_id": "[\"p-z\",41]"
+      },
+      {
+        "obs_id": "[77,41]",
+        "person_id": 77,
+        "block_id": 41,
+        "variable": "component1::response_2plm_rank_rank_k2",
+        "local_index": 1,
+        "task": "rank",
+        "response": [
+          2,
+          1
+        ],
+        "parent_obs_id": "[77,41]"
+      },
+      {
+        "obs_id": "[\"p-z\",\"mole\"]",
+        "person_id": "p-z",
+        "block_id": "mole",
+        "variable": "component1::response_2plm_rank_mole_k3",
+        "local_index": 0,
+        "task": "mole",
+        "response": [
+          3,
+          null,
+          1
+        ],
+        "parent_obs_id": "[\"p-z\",\"mole\"]"
+      },
+      {
+        "obs_id": "[77,\"mole\"]",
+        "person_id": 77,
+        "block_id": "mole",
+        "variable": "component1::response_2plm_rank_mole_k3",
+        "local_index": 1,
+        "task": "mole",
+        "response": [
+          3,
+          null,
+          1
+        ],
+        "parent_obs_id": "[77,\"mole\"]"
+      }
+    ],
+    "variable_roles": {
+      "traits": [
+        "theta"
+      ],
+      "trait_correlation": [
+        "trait_correlation"
+      ],
+      "item_parameters": [
+        "owner0::loading_magnitude",
+        "owner0::shared_intercept_0",
+        "owner0::shared_intercept_1"
+      ],
+      "item_free_parameters": [
+        "owner0::loading_magnitude",
+        "owner0::shared_intercept_0",
+        "owner0::shared_intercept_1"
+      ],
+      "observation_nuisance": [],
+      "responses": [
+        "component0::response_mgppm_rank_k3",
+        "component0::response_mgppm_pick_k4",
+        "component0::response_mgppm_rank_k2",
+        "component1::response_2plm_rank_rank_k2",
+        "component1::response_2plm_rank_mole_k3"
+      ]
+    },
+    "observation_unit": "person-block",
+    "likelihood_kind": "mixed_conditional",
+    "data_fingerprint": "976dc4dfa3377bed553e8d7de73d530b8d1ca2563edd80c452aeb2a53f8230f5"
+  },
+  "data": {
+    "design": {
+      "columns": [
+        "block_id",
+        "position",
+        "statement_id",
+        "trait",
+        "keying"
+      ],
+      "rows": [
+        [
+          "anchor",
+          1,
+          "a",
+          "alpha",
+          1
+        ],
+        [
+          "anchor",
+          2,
+          2,
+          13,
+          -1
+        ],
+        [
+          "anchor",
+          3,
+          "c",
+          "gamma",
+          1
+        ],
+        [
+          41,
+          1,
+          "c",
+          "gamma",
+          1
+        ],
+        [
+          41,
+          2,
+          4,
+          "alpha",
+          1
+        ],
+        [
+          "pick",
+          1,
+          4,
+          "alpha",
+          1
+        ],
+        [
+          "pick",
+          2,
+          "e",
+          13,
+          -1
+        ],
+        [
+          "pick",
+          3,
+          6,
+          "gamma",
+          1
+        ],
+        [
+          "pick",
+          4,
+          "g",
+          "alpha",
+          1
+        ],
+        [
+          "mole",
+          1,
+          "g",
+          "alpha",
+          1
+        ],
+        [
+          "mole",
+          2,
+          8,
+          "gamma",
+          1
+        ],
+        [
+          "mole",
+          3,
+          2,
+          13,
+          -1
+        ],
+        [
+          -8,
+          1,
+          "i",
+          13,
+          -1
+        ],
+        [
+          -8,
+          2,
+          10,
+          "gamma",
+          1
+        ]
+      ],
+      "dtypes": [
+        "object",
+        "int64",
+        "object",
+        "object",
+        "int64"
+      ]
+    },
+    "block_formats": [
+      [
+        "anchor",
+        "rank"
+      ],
+      [
+        41,
+        "rank"
+      ],
+      [
+        "pick",
+        "pick"
+      ],
+      [
+        "mole",
+        "mole"
+      ],
+      [
+        -8,
+        "rank"
+      ]
+    ],
+    "allow_variable_block_size": true,
+    "graded_scale": null,
+    "statement_features": null,
+    "original_responses": {
+      "columns": [
+        "person_id",
+        "block_id",
+        "response"
+      ],
+      "rows": [
+        [
+          "p-z",
+          "anchor",
+          [
+            3,
+            1,
+            2
+          ]
+        ],
+        [
+          "p-z",
+          41,
+          [
+            2,
+            1
+          ]
+        ],
+        [
+          "p-z",
+          "pick",
+          [
+            2,
+            null,
+            null,
+            null
+          ]
+        ],
+        [
+          "p-z",
+          "mole",
+          [
+            3,
+            null,
+            1
+          ]
+        ],
+        [
+          "p-z",
+          -8,
+          [
+            1,
+            2
+          ]
+        ],
+        [
+          77,
+          "anchor",
+          [
+            3,
+            1,
+            2
+          ]
+        ],
+        [
+          77,
+          41,
+          [
+            2,
+            1
+          ]
+        ],
+        [
+          77,
+          "pick",
+          [
+            2,
+            null,
+            null,
+            null
+          ]
+        ],
+        [
+          77,
+          "mole",
+          [
+            3,
+            null,
+            1
+          ]
+        ],
+        [
+          77,
+          -8,
+          [
+            1,
+            2
+          ]
+        ]
+      ],
+      "dtypes": [
+        "object",
+        "object",
+        "object"
+      ]
+    },
+    "input_encoding": "selection_order",
+    "administration": null
+  },
+  "points": [
+    {
+      "values": {
+        "trait_cholesky_cholesky_corr__": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "theta": [
+          [
+            0.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            0.0
+          ]
+        ],
+        "owner0::loading_magnitude_log__": [
+          0.125,
+          0.125,
+          0.125,
+          0.125,
+          0.125,
+          0.125,
+          0.125,
+          0.125,
+          0.125,
+          0.125
+        ],
+        "owner0::shared_intercept_0_zerosum__": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "owner0::shared_intercept_1_zerosum__": [
+          0.0
+        ]
+      },
+      "logp": -35.289258348322896,
+      "gradient": [
+        0.0,
+        0.0,
+        0.0,
+        -1.5108646040891023,
+        -1.8885807551113774,
+        -0.3777161510222753,
+        -1.5108646040891023,
+        -1.8885807551113774,
+        -0.3777161510222753,
+        -0.5,
+        -0.5,
+        -0.5,
+        -0.5,
+        -0.5,
+        -0.5,
+        -0.5,
+        -0.5,
+        -0.5,
+        -0.5,
+        0.0870679583212472,
+        0.7537346249879134,
+        -0.9129320416787531,
+        0.08706795832124742,
+        -2.912932041678753,
+        1.0870679583212475,
+        2.753734624987914,
+        -1.414213562373095
+      ]
+    },
+    {
+      "values": {
+        "trait_cholesky_cholesky_corr__": [
+          0.11,
+          0.11,
+          0.11
+        ],
+        "theta": [
+          [
+            0.11,
+            0.11,
+            0.11
+          ],
+          [
+            0.11,
+            0.11,
+            0.11
+          ]
+        ],
+        "owner0::loading_magnitude_log__": [
+          0.235,
+          0.235,
+          0.235,
+          0.235,
+          0.235,
+          0.235,
+          0.235,
+          0.235,
+          0.235,
+          0.235
+        ],
+        "owner0::shared_intercept_0_zerosum__": [
+          0.11,
+          0.11,
+          0.11,
+          0.11,
+          0.11,
+          0.11,
+          0.11
+        ],
+        "owner0::shared_intercept_1_zerosum__": [
+          0.11
+        ]
+      },
+      "logp": -37.414081942341774,
+      "gradient": [
+        -0.19949290609678638,
+        -0.19747136595903875,
+        -0.1999617528279872,
+        -2.0658916627023856,
+        -3.1098488594485154,
+        -1.1345293248412325,
+        -2.0658916627023856,
+        -3.1098488594485154,
+        -1.1345293248412325,
+        -0.965485572136542,
+        -0.9234892983314378,
+        -0.8263456075759239,
+        -0.9715789136937951,
+        -1.4521566347632395,
+        -1.110718878254413,
+        -1.317520467877888,
+        -0.9439964935561151,
+        -1.1088577752382753,
+        -1.1088577752382753,
+        0.14816248928264414,
+        0.08366002590829255,
+        -0.8518375107173558,
+        0.19195538211896895,
+        -3.715876204399436,
+        1.1919553821189688,
+        2.678240004057184,
+        -1.7437643141976666
+      ]
+    }
+  ],
+  "prior": {
+    "coords": {
+      "chain": {
+        "dims": [
+          "chain"
+        ],
+        "attrs": {},
+        "data": [
+          0
+        ]
+      },
+      "draw": {
+        "dims": [
+          "draw"
+        ],
+        "attrs": {},
+        "data": [
+          0,
+          1
+        ]
+      },
+      "trait": {
+        "dims": [
+          "trait"
+        ],
+        "attrs": {},
+        "data": [
+          "alpha",
+          13,
+          "gamma"
+        ]
+      },
+      "trait_aux": {
+        "dims": [
+          "trait_aux"
+        ],
+        "attrs": {},
+        "data": [
+          "alpha",
+          13,
+          "gamma"
+        ]
+      },
+      "owner0::shared_intercept_1_statement": {
+        "dims": [
+          "owner0::shared_intercept_1_statement"
+        ],
+        "attrs": {},
+        "data": [
+          "i",
+          10
+        ]
+      },
+      "owner0::statement": {
+        "dims": [
+          "owner0::statement"
+        ],
+        "attrs": {},
+        "data": [
+          "a",
+          2,
+          "c",
+          4,
+          "e",
+          6,
+          "g",
+          8,
+          "i",
+          10
+        ]
+      },
+      "owner0::shared_intercept_0_statement": {
+        "dims": [
+          "owner0::shared_intercept_0_statement"
+        ],
+        "attrs": {},
+        "data": [
+          "a",
+          2,
+          "c",
+          4,
+          "e",
+          6,
+          "g",
+          8
+        ]
+      },
+      "person": {
+        "dims": [
+          "person"
+        ],
+        "attrs": {},
+        "data": [
+          "p-z",
+          77
+        ]
+      }
+    },
+    "attrs": {
+      "created_at": "2026-11-04T19:57:23.089723+00:00",
+      "creation_library": "ArviZ",
+      "creation_library_version": "1.3.1",
+      "creation_library_language": "Python",
+      "inference_library": "pymc",
+      "inference_library_version": "6.4.0",
+      "sample_dims": [
+        "chain",
+        "draw"
+      ]
+    },
+    "dims": {
+      "chain": 1,
+      "draw": 2,
+      "trait": 3,
+      "trait_aux": 3,
+      "owner0::shared_intercept_1_statement": 2,
+      "owner0::statement": 10,
+      "owner0::shared_intercept_0_statement": 8,
+      "person": 2
+    },
+    "data_vars": {
+      "trait_cholesky": {
+        "dims": [
+          "chain",
+          "draw",
+          "trait",
+          "trait_aux"
+        ],
+        "attrs": {},
+        "data": [
+          [
+            [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                -0.08749277719503012,
+                0.9961651539472262,
+                0.0
+              ],
+              [
+                0.8620202490010703,
+                -0.4603048076669879,
+                0.2122276474703287
+              ]
+            ],
+            [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                -0.5737177234564881,
+                0.819053095831952,
+                0.0
+              ],
+              [
+                0.5934026802741122,
+                -0.5937214065234009,
+                0.5434778288756353
+              ]
+            ]
+          ]
+        ]
+      },
+      "owner0::shared_intercept_1": {
+        "dims": [
+          "chain",
+          "draw",
+          "owner0::shared_intercept_1_statement"
+        ],
+        "attrs": {},
+        "data": [
+          [
+            [
+              1.0361895982246343,
+              -1.0361895982246343
+            ],
+            [
+              2.145251305505404,
+              -2.145251305505404
+            ]
+          ]
+        ]
+      },
+      "owner0::loading": {
+        "dims": [
+          "chain",
+          "draw",
+          "owner0::statement"
+        ],
+        "attrs": {},
+        "data": [
+          [
+            [
+              0.7059693769165253,
+              -1.448440973157082,
+              0.725219872735334,
+              0.8656558489921982,
+              -0.5974660713279202,
+              0.8650857747667393,
+              0.9732265187952007,
+              1.3534099398688333,
+              -1.0591332921746996,
+              0.5897942494141718
+            ],
+            [
+              1.3959993761075937,
+              -1.3756408093851111,
+              0.7700935136687261,
+              0.7215045283309556,
+              -1.4147831853326054,
+              1.2672748184618836,
+              1.0953553297176766,
+              0.6956901486853287,
+              -0.5290231054842153,
+              0.577242771125298
+            ]
+          ]
+        ]
+      },
+      "owner0::shared_intercept_0": {
+        "dims": [
+          "chain",
+          "draw",
+          "owner0::shared_intercept_0_statement"
+        ],
+        "attrs": {},
+        "data": [
+          [
+            [
+              -0.839941680273959,
+              -0.31377837939591213,
+              1.5893980263260814,
+              -0.4167092718235559,
+              0.07271597036722599,
+              -1.6897818997542646,
+              1.584770676086393,
+              0.0133265584679918
+            ],
+            [
+              -1.301795214474079,
+              1.127935270348552,
+              -2.7241750245752945,
+              2.9255333419674363,
+              1.2507155390273512,
+              -0.08651126573129087,
+              -1.6569334736319197,
+              0.4652308270692451
+            ]
+          ]
+        ]
+      },
+      "owner0::intercept": {
+        "dims": [
+          "chain",
+          "draw",
+          "owner0::statement"
+        ],
+        "attrs": {},
+        "data": [
+          [
+            [
+              -0.9851676691593624,
+              -0.4590043682813155,
+              1.444172037440678,
+              -0.5619352607089593,
+              -0.07251001851817743,
+              -1.8350078886396681,
+              1.4395446872009896,
+              -0.13189943041741162,
+              1.0361895982246343,
+              -1.0361895982246343
+            ],
+            [
+              -0.3357835582404718,
+              2.0939469265821593,
+              -1.7581633683416873,
+              3.8915449982010433,
+              2.216727195260958,
+              0.8795003905023163,
+              -0.6909218173983125,
+              1.4312424833028523,
+              2.145251305505404,
+              -2.145251305505404
+            ]
+          ]
+        ]
+      },
+      "owner0::loading_magnitude": {
+        "dims": [
+          "chain",
+          "draw",
+          "owner0::statement"
+        ],
+        "attrs": {},
+        "data": [
+          [
+            [
+              0.7059693769165253,
+              1.448440973157082,
+              0.725219872735334,
+              0.8656558489921982,
+              0.5974660713279202,
+              0.8650857747667393,
+              0.9732265187952007,
+              1.3534099398688333,
+              1.0591332921746996,
+              0.5897942494141718
+            ],
+            [
+              1.3959993761075937,
+              1.3756408093851111,
+              0.7700935136687261,
+              0.7215045283309556,
+              1.4147831853326054,
+              1.2672748184618836,
+              1.0953553297176766,
+              0.6956901486853287,
+              0.5290231054842153,
+              0.577242771125298
+            ]
+          ]
+        ]
+      },
+      "trait_correlation": {
+        "dims": [
+          "chain",
+          "draw",
+          "trait",
+          "trait_aux"
+        ],
+        "attrs": {},
+        "data": [
+          [
+            [
+              [
+                1.0,
+                -0.08749277719503012,
+                0.8620202490010703
+              ],
+              [
+                -0.08749277719503012,
+                1.0,
+                -0.5339601551756884
+              ],
+              [
+                0.8620202490010703,
+                -0.5339601551756884,
+                1.0000000000000002
+              ]
+            ],
+            [
+              [
+                1.0,
+                -0.5737177234564881,
+                0.5934026802741122
+              ],
+              [
+                -0.5737177234564881,
+                1.0,
+                -0.8267349908945344
+              ],
+              [
+                0.5934026802741122,
+                -0.8267349908945344,
+                1.0
+              ]
+            ]
+          ]
+        ]
+      },
+      "theta": {
+        "dims": [
+          "chain",
+          "draw",
+          "person",
+          "trait"
+        ],
+        "attrs": {},
+        "data": [
+          [
+            [
+              [
+                0.9680245178110674,
+                -2.8977290851594235,
+                1.9323362944908524
+              ],
+              [
+                -0.4249513756794623,
+                0.6890640647974307,
+                -0.8560526052787707
+              ]
+            ],
+            [
+              [
+                -2.0956287340155146,
+                2.293316081714341,
+                -2.650632630628767
+              ],
+              [
+                0.33139057137030203,
+                0.09033627335055441,
+                0.40499473487634297
+              ]
+            ]
+          ]
+        ]
+      }
+    }
+  },
+  "prior_predictive": {
+    "coords": {
+      "chain": {
+        "dims": [
+          "chain"
+        ],
+        "attrs": {},
+        "data": [
+          0
+        ]
+      },
+      "draw": {
+        "dims": [
+          "draw"
+        ],
+        "attrs": {},
+        "data": [
+          0,
+          1
+        ]
+      },
+      "component0::mgppm_pick_k4_obs": {
+        "dims": [
+          "component0::mgppm_pick_k4_obs"
+        ],
+        "attrs": {},
+        "data": [
+          "[\"p-z\",\"pick\"]",
+          "[77,\"pick\"]"
+        ]
+      },
+      "component0::mgppm_rank_k2_obs": {
+        "dims": [
+          "component0::mgppm_rank_k2_obs"
+        ],
+        "attrs": {},
+        "data": [
+          "[\"p-z\",-8]",
+          "[77,-8]"
+        ]
+      },
+      "component1::2plm_rank_mole_k3_obs": {
+        "dims": [
+          "component1::2plm_rank_mole_k3_obs"
+        ],
+        "attrs": {},
+        "data": [
+          "[\"p-z\",\"mole\"]",
+          "[77,\"mole\"]"
+        ]
+      },
+      "component1::2plm_rank_rank_k2_obs": {
+        "dims": [
+          "component1::2plm_rank_rank_k2_obs"
+        ],
+        "attrs": {},
+        "data": [
+          "[\"p-z\",41]",
+          "[77,41]"
+        ]
+      },
+      "component0::mgppm_rank_k3_obs": {
+        "dims": [
+          "component0::mgppm_rank_k3_obs"
+        ],
+        "attrs": {},
+        "data": [
+          "[\"p-z\",\"anchor\"]",
+          "[77,\"anchor\"]"
+        ]
+      }
+    },
+    "attrs": {
+      "created_at": "2026-11-04T19:57:23.103083+00:00",
+      "creation_library": "ArviZ",
+      "creation_library_version": "1.3.1",
+      "creation_library_language": "Python",
+      "inference_library": "pymc",
+      "inference_library_version": "6.4.0",
+      "sample_dims": [
+        "chain",
+        "draw"
+      ]
+    },
+    "dims": {
+      "chain": 1,
+      "draw": 2,
+      "component0::mgppm_pick_k4_obs": 2,
+      "component0::mgppm_rank_k2_obs": 2,
+      "component1::2plm_rank_mole_k3_obs": 2,
+      "component1::2plm_rank_rank_k2_obs": 2,
+      "component0::mgppm_rank_k3_obs": 2
+    },
+    "data_vars": {
+      "component0::response_mgppm_pick_k4": {
+        "dims": [
+          "chain",
+          "draw",
+          "component0::mgppm_pick_k4_obs"
+        ],
+        "attrs": {},
+        "data": [
+          [
+            [
+              2,
+              2
+            ],
+            [
+              3,
+              3
+            ]
+          ]
+        ]
+      },
+      "component0::response_mgppm_rank_k2": {
+        "dims": [
+          "chain",
+          "draw",
+          "component0::mgppm_rank_k2_obs"
+        ],
+        "attrs": {},
+        "data": [
+          [
+            [
+              0,
+              1
+            ],
+            [
+              1,
+              1
+            ]
+          ]
+        ]
+      },
+      "component1::response_2plm_rank_mole_k3": {
+        "dims": [
+          "chain",
+          "draw",
+          "component1::2plm_rank_mole_k3_obs"
+        ],
+        "attrs": {},
+        "data": [
+          [
+            [
+              4,
+              4
+            ],
+            [
+              1,
+              1
+            ]
+          ]
+        ]
+      },
+      "component1::response_2plm_rank_rank_k2": {
+        "dims": [
+          "chain",
+          "draw",
+          "component1::2plm_rank_rank_k2_obs"
+        ],
+        "attrs": {},
+        "data": [
+          [
+            [
+              1,
+              1
+            ],
+            [
+              0,
+              0
+            ]
+          ]
+        ]
+      },
+      "component0::response_mgppm_rank_k3": {
+        "dims": [
+          "chain",
+          "draw",
+          "component0::mgppm_rank_k3_obs"
+        ],
+        "attrs": {},
+        "data": [
+          [
+            [
+              2,
+              3
+            ],
+            [
+              4,
+              4
+            ]
+          ]
+        ]
+      }
+    }
+  },
+  "seed": 391,
+  "draws": 2,
+  "method": "prior_forward_draws_not_inference",
+  "provenance": {
+    "reference": "artifact-checkpoint-20261104-r9/snapshot",
+    "source_sha256": {
+      "src/pyfcirt/__init__.py": "6607f5083bf02e0d4c843c98dd242104078e4a061ae0fd644a8b321445876ad6",
+      "src/pyfcirt/_continuous_model.py": "b5e2d2f7e1904e0beec0404969ca73ef91babd46a68f53a4e3a979e187045cbe",
+      "src/pyfcirt/_fc_metadata.py": "1dae1053c80ab1b3984fa77ec4163d8775fcf96781052bee43d6c4be45d4e1ab",
+      "src/pyfcirt/_fc_subset.py": "e8891947cf7edd7018b2826752487fa63369eb99f7170a1e65dc0f97dc75e101",
+      "src/pyfcirt/_gtum_blackjax.py": "1e35e37dc28781c30d0c9a65774a4c7037d72c509ee9c57e37e5399115b595f6",
+      "src/pyfcirt/_gtum_conditional.py": "440d6a1f69629effbf853bf02962ef4f2c8edcfd670a721d1053c533994e43c9",
+      "src/pyfcirt/_gtum_native.py": "e3b711afb8dac2bae3bc44825c1870a4425a9d6a7853c6d594d1b1761f8be47e",
+      "src/pyfcirt/_gtum_step.py": "82ced011a1451dce74ecc76c4b3010a37fd6d8658a1d74e4ef95781e36a4477e",
+      "src/pyfcirt/_item_composition.py": "ac771508cffc592f9c81b8c04f8b248479528ad62cfbc952047a60ef092aade5",
+      "src/pyfcirt/_jax_eap.py": "8758782d9260405fcbc44d842231d914d407c21c1ddaac928ce249669ed9c745",
+      "src/pyfcirt/_jax_map.py": "ee6a79d7afef45e40f523a23b9c8ae0ba097374dddb4495d5927edda07d23204",
+      "src/pyfcirt/_jax_qmc.py": "8877b945a67c2c3ba96a104185797a8bc74e0cf8dfb9667cec03d701a6560cca",
+      "src/pyfcirt/_lkj_compat.py": "095549f0d3e0949c3f0d10946fe52e8dd588e0e3ee554a2e343bbffeae4163bf",
+      "src/pyfcirt/_marginal_moments.py": "00121dba5fc6b2b37a37b26cb3ff5f3ac0f490d77004e0e9b35bc54b97adaa8b",
+      "src/pyfcirt/_mirt_m2.py": "4678eb6d553be1b5c738bea3bb21fce12d9d8260e356ef0a2977dcca3c794905",
+      "src/pyfcirt/_mirt_population.py": "9a423b59ded5f7c3b13bb2f7c52fb741025c1b53d78917bb999d0e3cb40bd030",
+      "src/pyfcirt/_mixed_model.py": "d4a127fed4b9a15d7b24273e19730512e1e203a7c55b4fb2833ec7bbf5c5e4c9",
+      "src/pyfcirt/_mixed_predictions.py": "7f98eea85377139e86ed1417f108db39e97ee9fe99849147c0046fb09fa1bbe5",
+      "src/pyfcirt/_mixed_prepare.py": "ee4fd0d876567eb3a65f716df26bc6fb158c977801a50b92522feaf1b434736a",
+      "src/pyfcirt/_mixed_scoring.py": "8a9c2724a26fc08cd72e15529c881f148e6fdf3b2ff6632980b53db0b0325787",
+      "src/pyfcirt/_model.py": "0b7a53fc349db6358b8b8b5aba0d522c193a41eb1a4e04c1437a730cf65e7365",
+      "src/pyfcirt/_numpyro_moves.py": "1d6088b8e8d66f0d216ce3683b61f2ce7d143ef7bc3dc73bae4a5c75ea569915",
+      "src/pyfcirt/_observations.py": "d8e02c60e1d49692713a6b04c0f2845ff038346378e8e274c151be3b20054092",
+      "src/pyfcirt/_scoring_target.py": "9ab434ee13a7c0e0e6b8ef3b16dbae66cf7757dbaf354950ab0ed00adf197e42",
+      "src/pyfcirt/_simulation.py": "6e5d629725ff7ca3e8e2b675e5d2f3adb4f3c91e0c7e21407dae59e5e86980b3",
+      "src/pyfcirt/_single_model.py": "0b676e73ffa3e96021f99a2f243b6fc12d84484d27eb46de2bfdaba69d6fe321",
+      "src/pyfcirt/_trait_moves.py": "fe7753d277feac8868ad04bc74d17b18fe31262559bffe2ae4f03d98e48cd31b",
+      "src/pyfcirt/calibration.py": "cb9f15d1d4a452d3db103de95acc094e6e3d8d6a4e85d89277db430e9dd91edf",
+      "src/pyfcirt/checks.py": "118d539c29cbe065e79172ec9eab8c6902ad1f7d6c4391c7d36d49da5a8f839e",
+      "src/pyfcirt/composition.py": "3e18a59a7937009435cc7a2a2503aa82de0767e838f41c529ef5ee9e678fe1d0",
+      "src/pyfcirt/data/__init__.py": "ba9c11d2c25c5e469336b201a2b7c7c52de1fd9d477489437448de9f4fa28abc",
+      "src/pyfcirt/data/_comparisons.py": "7bc808b70c06529a171d49d01f04daf888839eb7f76d49f1017a216bba95d7f9",
+      "src/pyfcirt/data/_encoding.py": "e71a7c31525c24ee1f39810819fa1bf2a4c464c0e2db1940f0648049ee6bf4f2",
+      "src/pyfcirt/data/_indexing.py": "d78d79564b615721ead6d1355d3ef8299aad940eaa33f7b09d8b5b4577de746d",
+      "src/pyfcirt/data/_ranking_validation.py": "4b7de55a57b2b1f4a417109b40ed9544031e1cf9d4ac847f5348b09674524297",
+      "src/pyfcirt/data/_schema.py": "e0cecd989cc119f667961c575a4c3d909ac9ee9467410dc7b68f209ca8fb0f55",
+      "src/pyfcirt/data/_single.py": "55954ba4530dedae2e1328d3e77dc78ae3a80bc8996224aa0a0ff03b82940f59",
+      "src/pyfcirt/data/_validation.py": "174aa750ffca5fcad3f6041fed83666b94e8c94b08b72a2e9956cab942c97615",
+      "src/pyfcirt/data/_wide.py": "889cf07de487b2395de76cfd7723ba4c2822fef7299163e23cc91becdf8af9d7",
+      "src/pyfcirt/eap_scoring.py": "9df9bbe72e154cbbac5125b9a25cb9683f06cc2a804a5b589bd1a89cd4d4317b",
+      "src/pyfcirt/fast_scoring.py": "224373637023c21a76a0c7d2f12e5ea47d55b4a2fd025d5c94fb0596dc64992a",
+      "src/pyfcirt/inference.py": "69a3607914d4a41256eb9c95278f3d487a3dad27393e36785182a25bd2240f86",
+      "src/pyfcirt/information.py": "c3b8819cd000129607dfb896a0b030ba1f6f0c4cc42d737561021adbe95bffa5",
+      "src/pyfcirt/io.py": "72a23082c69ea884f539f0508b584da6d1b80903affd04dc4343dab3a4274bd5",
+      "src/pyfcirt/limited_information.py": "40f5888377029a609d60c34727b5c94a72ad3e3e5e79aa823fcecb1a50cf65e5",
+      "src/pyfcirt/local_diagnostics.py": "1c0d96a9ee2e0fa71ade76b5e38cbb3139c80a3772754131a519fc0696094a9e",
+      "src/pyfcirt/model.py": "3d49fcdd00ad24d37e2d2b92c4a4a071bc3b007140c3d2e58704b98375e900a4",
+      "src/pyfcirt/model_comparison.py": "3c853aadd16945f0942e7a628574dcfe6eeb1d9a60dad2e6bd235785b74f330e",
+      "src/pyfcirt/models/__init__.py": "81836344e986a98d029b6d87b714d157de91c740271326ea86d28b8b5aac4f40",
+      "src/pyfcirt/models/_beta_comparison.py": "6720d5648da950f20d63c9b812990e8db2fa2db3c91de2635aba5299e4b82510",
+      "src/pyfcirt/models/_beta_scoring.py": "c0312b68aa2296639749d3d0bf3ea75d41df46b8783b2082f9bf9b62e1abde93",
+      "src/pyfcirt/models/_bindings.py": "0d7fdfe69861f557492a969e4c94c55f38d78ca66402a089feb4ecc129ea4f7a",
+      "src/pyfcirt/models/_comparison_data.py": "e3f3d06f13b114ac5a33198172b19bc74b4fa3dff08ae2c8ccac535b4ecdeeff",
+      "src/pyfcirt/models/_comparison_model.py": "2d7b7d6116120a8fe0831eafe45c2774d0cdd6b7a6b2f11722c605aa8611af0f",
+      "src/pyfcirt/models/_data.py": "77f0ddc2a5b45aed7681b34db769adb8e1951a07eedb0d9b01f4c41d37859c3c",
+      "src/pyfcirt/models/_event_probabilities.py": "884f9501224212f91fd8914117538fe997f1aa8d0c20c906ede37ab8b7b9107f",
+      "src/pyfcirt/models/_gaussian_model.py": "b9e8e5007591930351d052480d99de7db5f60b527ddf2a1f7fcc4a37d82d20ca",
+      "src/pyfcirt/models/_gaussian_ranking.py": "dcf2c1363ec3cc4356cdbf8f958ddf3844e9eeed0f624d0f605011b319086a48",
+      "src/pyfcirt/models/_gaussian_sequential.py": "a9a00b160a739302e7206d55189a4ea559b7c5a8c4718fd0ece22fc6e497c7bd",
+      "src/pyfcirt/models/_gaussian_workflow.py": "0681162f4eb611e78ee53d52c845ad2d0f7d1476e2b0d4033a016a42ce461c68",
+      "src/pyfcirt/models/_linear.py": "86bf47f7776a0326c99117d4ae2e12a7030f9d3bd176983ba08f7c01b5c2d8f8",
+      "src/pyfcirt/models/_ordered_lognormal.py": "682761ea3799a72706c30937c92f20f80d55edaf37c8aadd7de1d963ccfe4b37",
+      "src/pyfcirt/models/_ordered_normal.py": "dc84db6254be8c9bfc7b9365e926c803b524b5192bc36187108e12c8185382fb",
+      "src/pyfcirt/models/_ordinal.py": "6753aaf5e6c4d421ed5500ba7ba60f5f5ac2d5e435727f158fdab8d5b306c353",
+      "src/pyfcirt/models/_rank_comparison_data.py": "a98ecdbd1138bbbaaf0e35d4ec95b13664f4efb541abc6036599cad161687a28",
+      "src/pyfcirt/models/_rank_projection.py": "fb060c383c78fb85b790f7a8d17958ab1166095ccb24123629b2a770b96573eb",
+      "src/pyfcirt/models/_ranking.py": "3373c7e070a1abc428f75bd7730321bee177923e111f1d9cc7eefc639034e885",
+      "src/pyfcirt/models/_sharing.py": "f1d7e565377fe12d6a4df4dab0e4080493039894ca2115b9ad48c47d4d275bca",
+      "src/pyfcirt/models/_unfolding.py": "dc62694f266d3489d24030529755dce96c1acdf5f3c9421a5ecaf158af941395",
+      "src/pyfcirt/models/beta.py": "653ed5db5c98b5dd973bfc86b5d464df1ad85cb53e4786f2640ca86d9e01d9ac",
+      "src/pyfcirt/models/ggum_rank/__init__.py": "0b55d9bd9dc8688e87467c033dcf6e37cd7e9f5f300eb89734e88d2b016d3b7a",
+      "src/pyfcirt/models/ggum_rank/_likelihood.py": "57a4c802e76d0ad8361e25436c3df9dd4dd9237429107deda1191490f78abc04",
+      "src/pyfcirt/models/ggum_rank/model.py": "f4ecf3b49d773837b7cc042f7354548dcadf3b681f2ff724bc95ace75ebf4ffb",
+      "src/pyfcirt/models/gtum/__init__.py": "c5d53ec64735136e754329785005771e8ad4cd0d4779aa84611669a227a1242f",
+      "src/pyfcirt/models/gtum/_likelihood.py": "a5141319214e8e404598b9657dfc45964bf1e30614b3e6c369404a48b8b7b14d",
+      "src/pyfcirt/models/gtum/comparisons.py": "6af0bf305d3dbb8788dd95312ceb5b40e1fe6cfa81dae6c2099f1e739794480d",
+      "src/pyfcirt/models/gtum/model.py": "d749c42dc017bce05e741b72555b5c093393157c2fbc10ebd76f29dfa6c23ca2",
+      "src/pyfcirt/models/gtum/rank.py": "fde8c1d35ab61dd8435c91f434011e7ad0f687a293273c7d8032dd9404ebd748",
+      "src/pyfcirt/models/gtum/selection.py": "2e86166d9a1e93b9654169198e604bf97d34d824b25dfe69418641372dcf7e79",
+      "src/pyfcirt/models/mgppm/__init__.py": "d7d1988b66b8e1d1f56fa3eb6d8b0822d398756e76d0b6cb1d713b3954cc2161",
+      "src/pyfcirt/models/mgppm/_data.py": "a088ab0a4d296c13135718096ca5e3f866ab09c9f3bfac3bcdf1a4282d92b107",
+      "src/pyfcirt/models/mgppm/_likelihood.py": "7cccdc4bc3c42c36daf204cc0c86f9bc90e02f37cef177887ac330db359c33e2",
+      "src/pyfcirt/models/mgppm/model.py": "9e35fdce76392abda5caad7fd90e07d49c1bd1ffb8d423b71039ff3cbdf743ab",
+      "src/pyfcirt/models/single_item/__init__.py": "7d60acea18af081851fd1ecf6541c32ca5f7f596e645e36e07683e8d58840bb3",
+      "src/pyfcirt/models/single_item/_data.py": "695032c63873dc5ab2431b1ab3af4e99dd544678b3f3e252b1aa11a19e75a8ba",
+      "src/pyfcirt/models/single_item/_likelihood.py": "1a4fd77ec6470e2ef1ed0a3089280b3cce83b7c61faf88a5a57be477f1a544d0",
+      "src/pyfcirt/models/single_item/_scoring.py": "5c2ed7ef9da0f201139c2e77369192334c1d0f96b911bcf2fa4e0994ead4ddc4",
+      "src/pyfcirt/models/single_item/mggum.py": "9d813528d82a356bae6168f5e8afc3f189f9d084a9ddf9749bfaff94fea99246",
+      "src/pyfcirt/models/single_item/mgpcm.py": "d348f76f3cc31d957d4fe14849bce6b28661f9f1b47dc0563584b780420141ad",
+      "src/pyfcirt/models/single_item/mirt.py": "4da82161e69bf840b75e2651fb6d4041cdca534a2d82cc1ec3ce49e81fe8d1b8",
+      "src/pyfcirt/models/tirt/__init__.py": "9f4d67d5b9024c7415132bc13b5831e34f1b6f924adbb7f0eac3a0ee895bc645",
+      "src/pyfcirt/models/tirt/_comparison_prior.py": "7e55ff2cbdff9f68853405d7f9f2f7d619cc0c41b8d0731d78d763acd3eb8f07",
+      "src/pyfcirt/models/tirt/_data.py": "ff58229bd5307d5d0bae0e012a72db6f9d3023ba08faf49623478565698ab712",
+      "src/pyfcirt/models/tirt/_likelihood.py": "b31d4e1270a389785c75ccd15aef6708707b8e083799503efcb49ba4c3aba763",
+      "src/pyfcirt/models/tirt/_prior.py": "9fa1a49c530f0f05430d3527929f5e872615f9ea9e1baeed24efe6c56389f5bc",
+      "src/pyfcirt/models/tirt/comparisons.py": "edb4f5bf020e7361198d52038380c60c43841ec171ffdbbc9bc274c187bf9729",
+      "src/pyfcirt/models/tirt/model.py": "84cb382b41675dac75f1f44f1009d260034e1e814cdff8d4a44cfc665d74f72d",
+      "src/pyfcirt/models/tirt/rank.py": "3125bb73ff9901779992e0908eee7da480c90b8b7650bebb64b994e5a1ea7ec5",
+      "src/pyfcirt/models/tirt/residuals.py": "75b199a801dad0973dae97a42129c6b32aa2ad72d50f3ee16718cc8be0fb108a",
+      "src/pyfcirt/models/two_pl_rank/__init__.py": "71be8885478ef9b9122d09e3adc984192504d43fc68eda523ffdb0f5cc72163d",
+      "src/pyfcirt/models/two_pl_rank/_likelihood.py": "542f9354a4c36343c550222a866e5d3753c38d203ea095a3de4398c98a355cca",
+      "src/pyfcirt/models/two_pl_rank/model.py": "b1d892c1c9d8a39a99fd25d3702fe41cf92c78d5a3f2b30469231f0d8c586b8d",
+      "src/pyfcirt/moment_diagnostics.py": "609f7ef59ef66be4e972cd3fd7206fdc21005af4b8d0f807d0ab8bb7622b15a1",
+      "src/pyfcirt/population_local.py": "7ccd18d035894bab9c8be6b4e0c97a208b113c20a1401f55c7c651936819d352",
+      "src/pyfcirt/precision.py": "10a431e48d9728e42bdda72eced448ed716b6699a7889da25504244879160131",
+      "src/pyfcirt/predictive.py": "86b5c4058949dcee13419dde3dc675e797d68a71fe7e7e4d6672090bb1895875",
+      "src/pyfcirt/priors.py": "9b9167cd3e0c6b1cc60f79d511c7ca3cad92da25ec9b3cc90ed65efd19fc733f",
+      "src/pyfcirt/qmc_scoring.py": "d0e0ab705dee33859f97947ee7663ea45207c1fe40677a1c9add259938bac992",
+      "src/pyfcirt/reliability.py": "cd1581575b2fc7be15b2abd6186a37909e0f17230c96a6d373c643b84cbb5199",
+      "src/pyfcirt/results.py": "fa9ec8d556ce68a2a6721d1ebb272bdae5b4f4ebf57efe855c1acbf6b611fd35",
+      "src/pyfcirt/scoring.py": "bc51a7d0304d3618653fb71ae46fe493ef16af1a8edacfeaa53edc24c10acb28",
+      "src/pyfcirt/simulation.py": "ac5e9d830383d9cf60ad3290dca3b92de4b99a562db95d0c80dc37b315dc6c45",
+      "src/pyfcirt/tirt_information.py": "8e59da9256f055c318cf640a5102f1e49e2cefb91d8851fdb5abd45890bd3766",
+      "tests/models/test_shared_linear.py": "f76a7e56485ac4870f1906ab7ca5b08f85fda06051b3bca75580fdef248fd02f"
+    },
+    "execution_sha256": "2eff84fdf3a29ce164ef35aa6effa1c7715ed3d3e955afcc9ec6617a2f43434f",
+    "raw_output_sha256": "d91de8e9a3e170becb2f116448d1966c7e09b24cda6c12dcd6bf92cd853f0915",
+    "environment_inventory_after_capture": {
+      "pymc": "6.4.0",
+      "pytensor": "3.3.7",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1"
+    },
+    "posterior_mcmc": false
+  }
+}

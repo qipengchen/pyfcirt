@@ -1,0 +1,32 @@
+[
+  {
+    "person_id": "P1",
+    "item_id": "mood",
+    "response": "high"
+  },
+  {
+    "person_id": "P1",
+    "item_id": "focus",
+    "response": 4
+  },
+  {
+    "person_id": "P2",
+    "item_id": "mood",
+    "response": "medium"
+  },
+  {
+    "person_id": "P2",
+    "item_id": "focus",
+    "response": 2
+  },
+  {
+    "person_id": "P3",
+    "item_id": "mood",
+    "response": null
+  },
+  {
+    "person_id": "P3",
+    "item_id": "focus",
+    "response": 2
+  }
+]

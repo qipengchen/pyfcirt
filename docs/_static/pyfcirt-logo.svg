@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="40" height="40">
+  <title>PyFCIRT</title>
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="#2334A6"/>
+  <path d="m10 39 12 7 12-7v5l-12 7-12-7Z" fill="#8999F4"/><path d="m10 39 12-7 12 7-12 7Z" fill="#E9ECFF"/>
+  <path d="m29 22 12 7 12-7v5l-12 7-12-7Z" fill="#EC8B65"/><path d="m29 22 12-7 12 7-12 7Z" fill="#FFCC94"/>
+
+</svg>

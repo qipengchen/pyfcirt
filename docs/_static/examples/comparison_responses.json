@@ -1,0 +1,26 @@
+[
+  {
+    "person_id": "P",
+    "block_id": "B1",
+    "statement_1": "A",
+    "statement_2": "B",
+    "response": 5,
+    "status": "answered"
+  },
+  {
+    "person_id": "P",
+    "block_id": "B1",
+    "statement_1": "A",
+    "statement_2": "C",
+    "response": 3,
+    "status": "answered"
+  },
+  {
+    "person_id": "P",
+    "block_id": "B1",
+    "statement_1": "B",
+    "statement_2": "C",
+    "response": null,
+    "status": "missing"
+  }
+]

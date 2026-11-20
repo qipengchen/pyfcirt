@@ -1,0 +1,5 @@
+block_id,position,statement_id,trait,keying
+B1,1,A,T1,1
+B1,2,B,T2,1
+B2,1,C,T1,1
+B2,2,D,T2,1

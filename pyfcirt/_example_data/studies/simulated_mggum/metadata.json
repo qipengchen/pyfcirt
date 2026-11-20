@@ -1,0 +1,58 @@
+{
+  "source_design_asset": "src/pyfcirt/_example_data/mggum_study.json",
+  "source_design_asset_sha256": "4a7fb54dfb0ea9a510b0e86c1dd4c3e2004e2b25f9a92dfbfa7cea8239996a8b",
+  "generator": "pyfcirt.simulate prior predictive, one shared draw at N=500",
+  "family": "MGGUM",
+  "resolved_priors": {
+    "loading_magnitude": {
+      "name": "LogNormal",
+      "parameters": {
+        "mu": 0.0,
+        "sigma": 0.5
+      }
+    },
+    "location_magnitude": {
+      "name": "TruncatedNormal",
+      "parameters": {
+        "mu": 1.0,
+        "sigma": 1.0,
+        "lower": 0.0
+      }
+    },
+    "location_free": {
+      "name": "Normal",
+      "parameters": {
+        "mu": 0.0,
+        "sigma": 1.0
+      }
+    },
+    "threshold_magnitude": {
+      "name": "LogNormal",
+      "parameters": {
+        "mu": 0.0,
+        "sigma": 0.5
+      }
+    }
+  },
+  "family_options": {},
+  "truth_format": "xarray Dataset.to_dict(data=list), native parameters and deterministic variables",
+  "nested_cohorts": "first 50 and 100 person labels from the 500-person draw; identical responses and item parameters",
+  "versions": {
+    "pyfcirt": "0.1.0.dev0",
+    "pymc": "6.4.0",
+    "pytensor": "3.3.7",
+    "numpy": "2.5.4",
+    "xarray": "2026.9.0",
+    "arviz": "1.3.0"
+  },
+  "python": "3.12.13",
+  "recovery_or_convergence_claimed": false,
+  "synthetic": true,
+  "default_n_persons": 100,
+  "stored_sample_sizes": [
+    50,
+    100,
+    500
+  ],
+  "design_adaptations": "String IDs and theta trait names set before simulation; the measurement model is declared on the design. Unused location-side fields are omitted for dominance models."
+}

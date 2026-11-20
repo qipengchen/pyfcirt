@@ -1,0 +1,479 @@
+{
+  "provenance": {
+    "reference": "Executed deterministic PyMC 6.3.2 LKJCorr normalized-density audit",
+    "audit": "lkj-normalized-density-audit-r2/local632",
+    "versions": {
+      "pymc": "6.3.2",
+      "pytensor": "3.3.4",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1"
+    },
+    "source_sha256": {
+      "pymc/distributions/multivariate.py": "0f5fe7209490a94d1a0f4f75dbaa71956029db4839bb43b7021c050d2dfc8d1d",
+      "pymc/distributions/transforms.py": "a12532b806e2cd3d0b42bfb0a86f2ddb1a04d583f631aae9d24413dc0ef29c35"
+    },
+    "audit_artifact_sha256": {
+      "script.py": "ce8faee28ecdb90f22f3b1dcffdd68306c646e1d901b4d18b7779a6e922a7b2d",
+      "points.json": "5f79f87e2bc2839aa9a3c84214177742388fa09522298e9dc90473ee8def378b",
+      "receipt.json": "ee61249ced084dd557781d3f0defe2d3f8ef623fb2d18642195ed3b1c99030a4",
+      "actual-normalizer-helper.py": "93db612c25d8d3061148562841a5b498dd963b249b05693a2ca3fea041efc3fb"
+    },
+    "source_unchanged_during_audit": true,
+    "model_call": "pm.LKJCorr('L', n=D, eta=eta)",
+    "native_full_logp": "Native base logp plus native unconstrained-to-Cholesky transform log Jacobian; gradient with respect to z",
+    "independent_correct_full_logp": "Normalized correlation-density reference in z coordinates; not the PyMC 6.3.2 legacy target",
+    "normalizer_reference": "-sum_{j=1}^{D-1}(D-j)*betaln(eta+(D-j-1)/2,.5)",
+    "scope": "Legacy compatibility at all 12 executed points; no sampling, new numerical generation or Stan execution",
+    "numeric_copy": "All case values copied from points.json without numerical recomputation or rounding"
+  },
+  "cases": [
+    {
+      "D": 2,
+      "eta": 1,
+      "point": "identity",
+      "z": [
+        0.0
+      ],
+      "L": [
+        [
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0
+        ]
+      ],
+      "native_base_logp": 0.6931471805599453,
+      "native_full_logp": 0.6931471805599453,
+      "native_gradient": [
+        0.0
+      ],
+      "native_transform_log_jac": 0.0,
+      "independent_correct_full_logp": -0.6931471805599452
+    },
+    {
+      "D": 2,
+      "eta": 1,
+      "point": "nonsymmetric",
+      "z": [
+        -0.4
+      ],
+      "L": [
+        [
+          1.0,
+          0.0
+        ],
+        [
+          -0.37139067635410367,
+          0.9284766908852592
+        ]
+      ],
+      "native_base_logp": 0.6931471805599453,
+      "native_full_logp": 0.470517172882535,
+      "native_gradient": [
+        1.0344827586206893
+      ],
+      "native_transform_log_jac": -0.2226300076774103,
+      "independent_correct_full_logp": -0.9157771882373555
+    },
+    {
+      "D": 2,
+      "eta": 2,
+      "point": "identity",
+      "z": [
+        0.0
+      ],
+      "L": [
+        [
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0
+        ]
+      ],
+      "native_base_logp": 0.2876820724517809,
+      "native_full_logp": 0.2876820724517809,
+      "native_gradient": [
+        0.0
+      ],
+      "native_transform_log_jac": 0.0,
+      "independent_correct_full_logp": -0.28768207245178085
+    },
+    {
+      "D": 2,
+      "eta": 2,
+      "point": "nonsymmetric",
+      "z": [
+        -0.4
+      ],
+      "L": [
+        [
+          1.0,
+          0.0
+        ],
+        [
+          -0.37139067635410367,
+          0.9284766908852592
+        ]
+      ],
+      "native_base_logp": 0.13926206733350735,
+      "native_full_logp": -0.08336794034390296,
+      "native_gradient": [
+        1.7241379310344822
+      ],
+      "native_transform_log_jac": -0.2226300076774103,
+      "independent_correct_full_logp": -0.6587320852474647
+    },
+    {
+      "D": 3,
+      "eta": 1,
+      "point": "identity",
+      "z": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "L": [
+        [
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "native_base_logp": 1.596312591138855,
+      "native_full_logp": 1.596312591138855,
+      "native_gradient": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "native_transform_log_jac": 0.0,
+      "independent_correct_full_logp": -1.5963125911388545
+    },
+    {
+      "D": 3,
+      "eta": 1,
+      "point": "nonsymmetric",
+      "z": [
+        -0.4,
+        0.09999999999999998,
+        0.6
+      ],
+      "L": [
+        [
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.5144957554275266,
+          0.8574929257125443,
+          0.0
+        ],
+        [
+          0.09245003270420485,
+          -0.3698001308168195,
+          0.9245003270420487
+        ]
+      ],
+      "native_base_logp": 1.596312591138855,
+      "native_full_logp": 0.8210780438975854,
+      "native_gradient": [
+        1.3675213675213678,
+        -0.34188034188034183,
+        -1.3235294117647058
+      ],
+      "native_transform_log_jac": -0.7752345472412695,
+      "independent_correct_full_logp": -2.525289488254104
+    },
+    {
+      "D": 3,
+      "eta": 2,
+      "point": "identity",
+      "z": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "L": [
+        [
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "native_base_logp": 0.615483338127129,
+      "native_full_logp": 0.615483338127129,
+      "native_gradient": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "native_transform_log_jac": 0.0,
+      "independent_correct_full_logp": -0.6154833381271286
+    },
+    {
+      "D": 3,
+      "eta": 2,
+      "point": "nonsymmetric",
+      "z": [
+        -0.4,
+        0.09999999999999998,
+        0.6
+      ],
+      "L": [
+        [
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.5144957554275266,
+          0.8574929257125443,
+          0.0
+        ],
+        [
+          0.09245003270420485,
+          -0.3698001308168195,
+          0.9245003270420487
+        ]
+      ],
+      "native_base_logp": 0.15099488956950413,
+      "native_full_logp": -0.6242396576717654,
+      "native_gradient": [
+        2.0512820512820515,
+        -0.5128205128205128,
+        -2.2058823529411766
+      ],
+      "native_transform_log_jac": -0.7752345472412695,
+      "independent_correct_full_logp": -2.008948683800003
+    },
+    {
+      "D": 4,
+      "eta": 1,
+      "point": "identity",
+      "z": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "L": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "native_base_logp": 4.251118277722252,
+      "native_full_logp": 4.251118277722252,
+      "native_gradient": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "native_transform_log_jac": 0.0,
+      "independent_correct_full_logp": -2.459358808494197
+    },
+    {
+      "D": 4,
+      "eta": 1,
+      "point": "nonsymmetric",
+      "z": [
+        -0.4,
+        -0.2,
+        0.0,
+        0.20000000000000007,
+        0.4,
+        0.6
+      ],
+      "L": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.19611613513818407,
+          0.9805806756909201,
+          0.0,
+          0.0
+        ],
+        [
+          0.4866642633922876,
+          0.3244428422615251,
+          0.8111071056538127,
+          0.0
+        ],
+        [
+          0.0,
+          -0.18257418583505539,
+          -0.36514837167011077,
+          0.9128709291752769
+        ]
+      ],
+      "native_base_logp": 4.251118277722252,
+      "native_full_logp": 2.899062646291074,
+      "native_gradient": [
+        1.6666666666666672,
+        0.8333333333333336,
+        0.0,
+        -0.5769230769230771,
+        -1.0526315789473686,
+        -1.5789473684210527
+      ],
+      "native_transform_log_jac": -1.3520556314311785,
+      "independent_correct_full_logp": -4.059990320507749
+    },
+    {
+      "D": 4,
+      "eta": 2,
+      "point": "identity",
+      "z": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "L": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "native_base_logp": 0.809098901539842,
+      "native_full_logp": 0.809098901539842,
+      "native_gradient": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "native_transform_log_jac": 0.0,
+      "independent_correct_full_logp": -0.8090989015398422
+    },
+    {
+      "D": 4,
+      "eta": 2,
+      "point": "nonsymmetric",
+      "z": [
+        -0.4,
+        -0.2,
+        0.0,
+        0.20000000000000007,
+        0.4,
+        0.6
+      ],
+      "L": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.19611613513818407,
+          0.9805806756909201,
+          0.0,
+          0.0
+        ],
+        [
+          0.4866642633922876,
+          0.3244428422615251,
+          0.8111071056538127,
+          0.0
+        ],
+        [
+          0.0,
+          -0.18257418583505539,
+          -0.36514837167011077,
+          0.9128709291752769
+        ]
+      ],
+      "native_base_logp": 0.1688462967344211,
+      "native_full_logp": -1.1832093346967574,
+      "native_gradient": [
+        2.333333333333334,
+        1.166666666666667,
+        0.0,
+        -0.9615384615384619,
+        -1.5789473684210529,
+        -2.3684210526315788
+      ],
+      "native_transform_log_jac": -1.3520556314311785,
+      "independent_correct_full_logp": -3.049983018358815
+    }
+  ]
+}

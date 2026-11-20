@@ -1,0 +1,4 @@
+person_id,block_id,status
+P1,B1,answered
+P2,B1,missing
+P3,B1,not_administered

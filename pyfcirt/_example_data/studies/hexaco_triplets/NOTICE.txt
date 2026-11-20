@@ -1,0 +1,29 @@
+Numerical HEXACO triplet example from autoFC 0.2.0.1001
+
+Source authors: Mengtong Li, Tianjun Sun and Bo Zhang (autoFC).
+Study: Li, M., Zhang, B., Li, L., Sun, T., and Brown, A. (2025).
+Mixed-Keying or Desirability-Matching in the Construction of Forced-Choice
+Measures? An Empirical Investigation and Practical Recommendations.
+Organizational Research Methods, 28(2), 296-329.
+https://doi.org/10.1177/10944281241229784
+
+The numerical example data and block information are adapted from the
+triplet_example_data and triplet_block_info objects distributed in autoFC
+0.2.0.1001 under GNU General Public License version 3 (GPL-3).
+The complete license accompanies this directory in LICENSE-GPL-3.0.txt.
+This data license is separate from the license of PyFCIRT's own source code.
+
+Original source package, including its data and documentation:
+https://cran.r-project.org/src/contrib/Archive/autoFC/autoFC_0.2.0.1001.tar.gz
+Original study repository: https://osf.io/yvpz3/
+
+Changes: convert the published R data objects into numerical CSV and normalized
+PyFCIRT responses; assign person IDs from example row order; use B1-B5 block
+labels and pipe-separated comparison labels; attach TIRT and MOLE declarations;
+provide nested 50- and 100-person subsets. Values, statement IDs, trait labels
+and source keying are retained. No responses are simulated or imputed.
+
+source_responses.csv.gz and source_design.csv retain the complete numerical
+source example in editable CSV form. scripts/prepare_hexaco_triplets.py in
+PyFCIRT regenerates the converted cohorts from these files without R.
+No autoFC analysis functions are included. Metadata records source hashes.

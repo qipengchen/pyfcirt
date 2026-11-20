@@ -1,0 +1,13 @@
+PyFCIRT
+Copyright (c) 2026 qipengchen
+
+Earlier revisions contained an inverse log-normal-CDF implementation in
+pyfcirt/models/thurstonian/inverse_logcdf.py adapted from the JAX project.
+Copyright 2018, 2026 The JAX Authors. Licensed under the Apache License, Version 2.0.
+The license is included in LICENSES/JAX-Apache-2.0.txt.
+
+Reference revision: 9f8a2eaad1c0407a9f0ee3c924f0f72881f9785b
+https://github.com/jax-ml/jax/blob/9f8a2eaad1c0407a9f0ee3c924f0f72881f9785b/jax/_src/scipy/special.py
+https://github.com/jax-ml/jax/blob/9f8a2eaad1c0407a9f0ee3c924f0f72881f9785b/jax/_src/lax/erf.py
+
+Current revisions use the released jax.scipy.special.ndtri_exp API directly.

@@ -1,0 +1,182 @@
+/* Self-host the Source Sans family used by the Bambi/Cosmo reading layout. */
+@font-face {
+  font-family: "Source Sans 3";
+  src: url("fonts/SourceSans3-Upright.woff2") format("woff2");
+  font-weight: 200 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Navigation, focus indicators and responsive behavior stay theme-owned. */
+html {
+  --pst-font-family-base: "Source Sans 3", "Segoe UI", sans-serif;
+  --pst-font-size-base: 1.0625rem;
+  --pst-sidebar-font-size: 0.94rem;
+  --pst-font-weight-heading: 500;
+}
+
+html[data-theme="light"] {
+  --pst-color-primary: #176475;
+  --pst-color-secondary: #425b79;
+  --pst-color-link: #176475;
+  --pst-color-link-hover: #103f4b;
+  --pst-color-text-base: #373a3c;
+  --pst-color-background: #fff;
+  --pst-color-on-background: #fff;
+  --pst-color-surface: #f8f9fa;
+  --pst-color-border: #dee2e6;
+}
+
+html[data-theme="dark"] {
+  --pst-color-primary: #85ded2;
+  --pst-color-secondary: #b7c9e3;
+  --pst-color-link: #85ded2;
+  --pst-color-link-hover: #c2f0e9;
+}
+
+.navbar-brand img {
+  height: 2.25rem;
+  width: 2.25rem;
+}
+
+.bd-header {
+  border-bottom: 1px solid var(--pst-color-border);
+  box-shadow: 0 1px 6px rgb(0 0 0 / 6%);
+}
+
+.navbar-nav .nav-link {
+  font-size: 1.08rem;
+  padding-inline: 0.65rem;
+}
+
+.bd-page-width {
+  max-width: 82rem;
+}
+
+.bd-main .bd-content .bd-article-container {
+  max-width: 68rem;
+}
+
+.bd-article {
+  line-height: 1.5;
+}
+
+.bd-article h1 {
+  font-size: 2rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+}
+
+.bd-article h2 {
+  font-size: 1.65rem;
+  font-weight: 600;
+  margin-top: 1.75rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--pst-color-border);
+}
+
+/* Native Sphinx Design grids own card sizing, links and phone breakpoints. */
+.bd-content .sd-card {
+  border: 2px solid var(--pst-color-border);
+  border-radius: 0.2rem;
+}
+
+.sd-card-title {
+  color: var(--pst-color-link);
+  font-size: 1.15rem;
+  font-weight: 400;
+}
+
+.sd-card-body {
+  padding: 0.85rem;
+}
+
+.sd-card-text {
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.sd-card-hover:hover {
+  border-color: var(--pst-color-link);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 10%);
+}
+
+.sd-card img {
+  width: 100%;
+  height: auto;
+}
+
+/* Each model card has one destination; Sphinx Design owns the stretched link. */
+.bd-content .model-gallery .sd-card {
+  border-width: 1px;
+}
+
+.bd-content .model-gallery .sd-card .sd-card-header {
+  padding: 0.5rem 0.6rem;
+  background: var(--pst-color-surface);
+  border-bottom: 1px solid var(--pst-color-border);
+}
+
+.model-gallery .sd-card-header p {
+  margin: 0;
+  color: var(--pst-color-text-muted);
+  font-size: 0.84rem;
+  line-height: 1.35;
+}
+
+.model-gallery .sd-card-header strong {
+  display: block;
+  color: var(--pst-color-link);
+  font-size: 1.02rem;
+  font-weight: 400;
+  line-height: 1.35;
+}
+
+.fc-model-gallery .sd-card-header strong {
+  min-height: 2.7em;
+}
+
+.model-gallery .sd-card-body {
+  padding: 0.25rem;
+}
+
+/* Previews stay compact; the linked examples retain the full-size figures. */
+.model-gallery .sd-card img {
+  max-height: 175px;
+  object-fit: contain;
+}
+
+.model-gallery .sd-card-body .sd-card-text {
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.bd-content .model-gallery .sd-card .sd-card-footer {
+  padding: 0.45rem 0.6rem;
+  background: var(--pst-color-on-background);
+  border-top: 1px solid var(--pst-color-border);
+}
+
+.model-gallery .sd-card-footer p {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+/* Keep complete questionnaire declarations readable without horizontal scrolling. */
+.tag_design-spec pre {
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+/* Keep the single installation command visible without changing its copy text. */
+.highlight-console pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Give notebook tables enough separation to distinguish adjacent statistics. */
+.cell_output table th,
+.cell_output table td {
+  padding: 0.18rem 0.42rem;
+}

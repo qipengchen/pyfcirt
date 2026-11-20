@@ -1,0 +1,4 @@
+block_id,position,statement_id,trait,keying
+B1,1,S1,extraversion,1
+B1,2,S2,agreeableness,-1
+B1,3,S3,openness,1

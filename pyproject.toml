@@ -1,0 +1,86 @@
+[build-system]
+requires = ["hatchling>=1.26,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pyfcirt"
+version = "0.1.0.dev0"
+description = "Bayesian forced-choice IRT modeling with PyMC and ArviZ"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT AND Apache-2.0"
+license-files = [
+    "LICENSE",
+    "LICENSES/JAX-Apache-2.0.txt",
+    "NOTICE",
+    "pyfcirt/_example_data/studies/carelessness_big_five/LICENSE-CC-BY-4.0.txt",
+]
+authors = [{name = "qipengchen"}]
+dependencies = [
+    "pymc>=6.4.0,<7",
+    "pytensor>=3.3.7,<4",
+    "jax>=0.12.1",
+    "blackjax[progress]>=1.5,<1.6",
+    "optax>=0.2.8,<0.3",
+    "arviz>=1,<2",
+    "arviz-stats>=1,<2",
+    "numpy>=2",
+    "scipy>=1.13",
+    "pandas>=2.2",
+    "xarray>=2025.1",
+]
+
+[project.urls]
+Repository = "https://github.com/qipengchen/pyfcirt"
+Issues = "https://github.com/qipengchen/pyfcirt/issues"
+
+[project.optional-dependencies]
+covariates = ["formulae>=0.9,<0.10"]
+test = ["pytest>=8", "pytest-xdist>=3.6,<4", "pytest-cov>=6,<8", "coverage>=7.6,<8"]
+lint = ["ruff"]
+release = ["build", "twine"]
+io = ["h5netcdf", "h5py"]
+plots = ["arviz-plots[matplotlib]>=1,<2", "seaborn>=0.13,<0.14"]
+posterior = ["scikit-learn>=1.9,<2"]
+numpyro = ["numpyro"]
+cuda12 = ["jax[cuda12]"]
+cuda13 = ["jax[cuda13]"]
+docs = ["sphinx", "pydata-sphinx-theme>=0.16,<1", "sphinx-design>=0.8,<1", "myst-nb", "numpydoc", "ipykernel", "watermark>=2.5,<3"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["pyfcirt"]
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+    "/AGENTS.md",
+    "/PLAN.md",
+    "/.agent",
+    "/.agents",
+    "/results",
+    "/docs/_static/examples/tirt_study_fit.zip",
+    "/docs/_static/examples/saved_1pl.zip",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--import-mode=importlib --strict-markers"
+markers = [
+    "slow: subprocess documentation and supplied-trace continuation checks",
+    "reference: direct comparison in isolated R2jags or legacy ArviZ environments",
+    "recovery: long GPU MCMC on model-matched simulations; requires --run-recovery",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.coverage.run]
+branch = true
+source = ["pyfcirt"]
+
+[tool.coverage.report]
+show_missing = true
+precision = 2

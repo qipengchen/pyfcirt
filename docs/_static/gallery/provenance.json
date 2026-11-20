@@ -1,0 +1,86 @@
+{
+  "mcmc_run": false,
+  "joint_fit": {
+    "people": 128,
+    "groups": 2,
+    "traits": 3,
+    "chains": 4,
+    "draws_per_chain": 1000,
+    "models": [
+      "MGPPM",
+      "TwoPLRank",
+      "GGUMRank",
+      "TIRT",
+      "TIRTRank",
+      "GTUM",
+      "DichotomousIRT",
+      "GPCM",
+      "GGUM"
+    ],
+    "max_rhat": 1.0269745541037656,
+    "min_ess_bulk": 110.09251280888225,
+    "min_ess_tail": 184.62093821308153,
+    "divergences": 13,
+    "posterior_sha256": "27cc3447d9e1cc946fdf1dc668d0d00e21de8cbceba1c6b99be0b325b3d520aa",
+    "trait_names": [
+      "agency",
+      "communion",
+      "stability"
+    ],
+    "group_names": [
+      "A_reference",
+      "B_alternate"
+    ],
+    "loading_term": "length",
+    "old_state_policy": "Read typed saved arrays only; do not migrate or rebuild the historical graph."
+  },
+  "ggum_rank": {
+    "block": "GGUMRank_B2",
+    "kind": "posterior location densities",
+    "interval": "95% highest-density interval"
+  },
+  "covariates": {
+    "people": 80,
+    "chains": 4,
+    "draws_per_chain": 4000,
+    "coefficient": "log_likert_loading",
+    "summary": {
+      "mean": 0.2869539058166395,
+      "sd": 0.12129013497526184,
+      "low": 0.04924127760779449,
+      "high": 0.5276663257538141
+    },
+    "posterior_sha256": "876a9c39b182458bbdb5cd197b2edb0f1b48fa2f71f9d9d33360cc52f0de954d",
+    "effect": {
+      "function": "exp(beta * standardized log-loading predictor)",
+      "point": "posterior median",
+      "interval": "pointwise 95% equal-tailed",
+      "predictor": "training values standardized by the saved encoder"
+    }
+  },
+  "gtum": {
+    "people": 100,
+    "statements": [
+      "S1",
+      "S13",
+      "S25"
+    ],
+    "posterior_sha256": "3de4cd17d56ce72b97d7be289da24cc946832f725a2844e0cd0bccfb837084df"
+  },
+  "sources": {
+    "tirt": "Executed Big Five TIRT notebook: ArviZ binary PAV-adjusted calibration for B01_1 versus B01_2; saved 500-person fit and 400 posterior predictive states.",
+    "groups": "Executed 500-person grouped Big Five TIRT notebook: posterior B minus A correlation differences with 50% and 95% HDIs. Four chains, 3000 warmup and 3000 retained draws per chain, seed44. Fit SHA256 185473cc214bfb05abeac8e573bd1821be814ad9e17c569006886e8bbc41aa63. Tables and figures recovered from this saved fit without rerunning MCMC.",
+    "jrt_tirt": "Executed native PyMC notebook: observed and prior-predictive log times, and entropy/time relationship, without fitting",
+    "assignment": "Executed construction notebook: model/task assignments from prepared coordinates; no fitted estimates",
+    "items": "Executed combined item notebook: separate observed category frequencies and prior-predictive calibration; no fitted estimates"
+  },
+  "mgppm": {
+    "kind": "Free intercept posterior means and 95% HDIs",
+    "fixed_parameters": "Excluded from interval plot"
+  },
+  "statement_functions": {
+    "source": "Joint fit posterior-mean parameters",
+    "trait": "agency",
+    "support": "Rug of fitted posterior-mean scores and their 5th\u201395th percentiles; not curve uncertainty"
+  }
+}

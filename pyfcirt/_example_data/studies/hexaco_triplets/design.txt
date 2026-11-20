@@ -1,0 +1,14 @@
+conscientiousness: i1 i14
+emotionality: i2 i4 i10
+openness: i3 i5 i7
+extraversion: i6 i11 i13
+honestyhumility: i8 i15
+agreeableness: i9 i12
+
+B1 = i1 i2 i3
+B2 = i4 i5 i6
+B3 = i7 i8 i9
+B4 = i10 i11 i12
+B5 = i13 i14 i15
+
+sign -: i1 i2 i3 i7 i8 i9 i13 i14 i15

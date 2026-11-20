@@ -1,0 +1,191 @@
+name: Checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      full:
+        description: Run the full ordinary suite, global coverage and package checks
+        type: boolean
+        default: false
+      base:
+        description: Base revision for affected checks; unavailable baselines use full tests
+        type: string
+        default: ''
+
+concurrency:
+  group: checks-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      full: ${{ steps.select.outputs.full }}
+      tests: ${{ steps.select.outputs.tests }}
+      lint: ${{ steps.select.outputs.lint }}
+      docs: ${{ steps.select.outputs.docs }}
+      package: ${{ steps.select.outputs.package }}
+    steps:
+      # PR merge commits include their base parent at depth 2. Missing baselines
+      # fall back to full tests without fetching every branch's history.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Select affected checks
+        id: select
+        env:
+          FULL_CHECKS: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.full) }}
+          CHECK_BASE: ${{ inputs.base }}
+        run: python scripts/ci.py --plan "$RUNNER_TEMP/ci-plan.json"
+      - name: Verify CI selection logic
+        run: python -m unittest discover -s .github/tests -v
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ci-plan
+          path: ${{ runner.temp }}/ci-plan.json
+          retention-days: 7
+
+  quality:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: ci-plan
+          path: ${{ runner.temp }}
+      - name: Install formatter
+        if: needs.plan.outputs.lint == 'true'
+        run: python -m pip install ruff
+      - name: Check changed code formatting
+        if: needs.plan.outputs.lint == 'true'
+        run: |
+          python - <<'PY'
+          import json, os, subprocess, sys
+          from pathlib import Path
+          files = json.loads((Path(os.environ['RUNNER_TEMP']) / 'ci-plan.json').read_text())['lint']
+          for command in (['check'], ['format', '--check']):
+              subprocess.run([sys.executable, '-m', 'ruff', *command, *files], check=True)
+          PY
+      - name: Install documentation syntax support
+        if: needs.plan.outputs.docs == 'true'
+        run: python -m pip install ipython
+      - name: Check documentation syntax and local links
+        if: needs.plan.outputs.docs == 'true'
+        run: python scripts/check_docs.py "$RUNNER_TEMP/ci-plan.json"
+      # Sphinx builds and Pages publication belong only to docs.yml.
+      - name: Install packaging tools
+        if: needs.plan.outputs.package == 'true'
+        run: python -m pip install build twine
+      - name: Build and check distributions
+        if: needs.plan.outputs.package == 'true'
+        run: |
+          python -m build
+          python -m twine check dist/*
+      - name: Check installed wheel outside the source environment
+        if: needs.plan.outputs.package == 'true'
+        run: |
+          python -m venv "$RUNNER_TEMP/pyfcirt-wheel"
+          "$RUNNER_TEMP/pyfcirt-wheel/bin/python" -m pip install dist/*.whl
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/pyfcirt-wheel/bin/python" -c "import pyfcirt; from importlib.resources import files; assert files('pyfcirt').joinpath('py.typed').is_file(); print(pyfcirt.__version__)"
+
+  test:
+    needs: plan
+    if: needs.plan.outputs.tests == 'true'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    env:
+      FULL_CHECKS: ${{ needs.plan.outputs.full }}
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      NUMEXPR_NUM_THREADS: '1'
+      JAX_PLATFORMS: cpu
+      JAX_ENABLE_X64: 'true'
+      PYTENSOR_FLAGS: mode=FAST_COMPILE,cxx=,floatX=float64,cast_policy=numpy+floatX,traceback__limit=0
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - uses: actions/download-artifact@v4
+        with:
+          name: ci-plan
+          path: ${{ runner.temp }}
+      - name: Install test dependencies
+        run: python -m pip install -e ".[test,io,plots,covariates,posterior]"
+      - name: Parallel CPU tests without posterior MCMC
+        run: |
+          python - <<'PY'
+          import json, os, subprocess, sys
+          from pathlib import Path
+          tests = json.loads((Path(os.environ['RUNNER_TEMP']) / 'ci-plan.json').read_text())['tests']
+          assert tests, 'Refusing pytest without a test selection'
+          # Keep module fixtures together; native plugins schedule and combine workers.
+          command = [sys.executable, '-m', 'pytest', '-n', '2', '--dist', 'loadfile',
+                     '--durations=20', '--junitxml=test-results.xml']
+          if os.environ['FULL_CHECKS'] == 'true' and os.environ['RUNNER_OS'] == 'Linux':
+              command += ['--cov=pyfcirt', '--cov-branch', '--cov-report=xml:coverage.xml']
+          command += [*tests, '-m', 'not slow and not reference and not recovery']
+          subprocess.run(command, check=True)
+          PY
+      - name: Require 90% overall branch coverage
+        if: env.FULL_CHECKS == 'true' && runner.os == 'Linux'
+        run: >-
+          python -c "import xml.etree.ElementTree as ET;
+          report = ET.parse('coverage.xml').getroot();
+          covered = int(report.attrib['branches-covered']);
+          total = int(report.attrib['branches-valid']);
+          assert total > 0 and covered / total >= .9,
+          f'Overall branch coverage {covered}/{total} is below 90%'"
+      - name: Retain test and coverage reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checks-${{ matrix.os }}
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7
+          path: |
+            .coverage
+            coverage.xml
+            test-results.xml
+      - name: Upload coverage
+        if: ${{ always() && runner.os == 'Linux' && github.event_name != 'pull_request' && hashFiles('coverage.xml') != '' }}
+        uses: codecov/codecov-action@v7
+        with:
+          files: coverage.xml
+          flags: core
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false

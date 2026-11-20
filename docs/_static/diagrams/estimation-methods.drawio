@@ -1,0 +1,67 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mxfile host="drawio" version="31.3.2">
+  <diagram name="Guide">
+    <mxGraphModel>
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="2" value="&lt;div style=&quot;font-size:24px;font-weight:700&quot;&gt;Prepared TIRT model&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;spacing=10;fontFamily=Arial;fontSize=18;fillColor=#184d63;strokeColor=#184d63;fontColor=#ffffff;strokeWidth=1.5;" vertex="1" parent="1">
+          <mxGeometry x="20" y="20" width="900" height="56" as="geometry" />
+        </mxCell>
+        <mxCell id="3" value="&lt;div style=&quot;font-size:23px;font-weight:700&quot;&gt;NUTS&lt;/div&gt;&lt;div style=&quot;font-size:17px;margin-top:6px&quot;&gt;Posterior draws&lt;/div&gt;&lt;div style=&quot;font-size:15px;margin-top:6px;font-family:monospace&quot;&gt;fit() or score()&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;spacing=10;fontFamily=Arial;fontSize=18;fillColor=#eef7fa;strokeColor=#8eb8c7;fontColor=#17334a;strokeWidth=1.5;" vertex="1" parent="1">
+          <mxGeometry x="20" y="111" width="204" height="116" as="geometry" />
+        </mxCell>
+        <mxCell id="9" source="2" target="3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;endArrow=block;endSize=7;strokeColor=#55788b;strokeWidth=1.5;html=1;exitX=0.11333333333333333;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="4" value="&lt;div style=&quot;font-size:23px;font-weight:700&quot;&gt;MAP + Laplace&lt;/div&gt;&lt;div style=&quot;font-size:17px;margin-top:6px&quot;&gt;Mode and local SDs&lt;/div&gt;&lt;div style=&quot;font-size:15px;margin-top:6px;font-family:monospace&quot;&gt;pm.find_MAP()&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;spacing=10;fontFamily=Arial;fontSize=18;fillColor=#eef7fa;strokeColor=#8eb8c7;fontColor=#17334a;strokeWidth=1.5;" vertex="1" parent="1">
+          <mxGeometry x="252" y="111" width="204" height="116" as="geometry" />
+        </mxCell>
+        <mxCell id="10" source="2" target="4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;endArrow=block;endSize=7;strokeColor=#55788b;strokeWidth=1.5;html=1;exitX=0.3711111111111111;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="5" value="&lt;div style=&quot;font-size:23px;font-weight:700&quot;&gt;VI&lt;/div&gt;&lt;div style=&quot;font-size:17px;margin-top:6px&quot;&gt;Approximate draws&lt;/div&gt;&lt;div style=&quot;font-size:15px;margin-top:6px;font-family:monospace&quot;&gt;pm.fit()&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;spacing=10;fontFamily=Arial;fontSize=18;fillColor=#eef7fa;strokeColor=#8eb8c7;fontColor=#17334a;strokeWidth=1.5;" vertex="1" parent="1">
+          <mxGeometry x="484" y="111" width="204" height="116" as="geometry" />
+        </mxCell>
+        <mxCell id="11" source="2" target="5" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;endArrow=block;endSize=7;strokeColor=#55788b;strokeWidth=1.5;html=1;exitX=0.6288888888888889;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="6" value="&lt;div style=&quot;font-size:23px;font-weight:700&quot;&gt;SMC&lt;/div&gt;&lt;div style=&quot;font-size:17px;margin-top:6px&quot;&gt;Posterior particles&lt;/div&gt;&lt;div style=&quot;font-size:15px;margin-top:6px;font-family:monospace&quot;&gt;pm.sample_smc()&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;spacing=10;fontFamily=Arial;fontSize=18;fillColor=#eef7fa;strokeColor=#8eb8c7;fontColor=#17334a;strokeWidth=1.5;" vertex="1" parent="1">
+          <mxGeometry x="716" y="111" width="204" height="116" as="geometry" />
+        </mxCell>
+        <mxCell id="12" source="2" target="6" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;endArrow=block;endSize=7;strokeColor=#55788b;strokeWidth=1.5;html=1;exitX=0.8866666666666667;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="7" value="&lt;div style=&quot;font-size:23px;font-weight:700&quot;&gt;NUTS sampler&lt;/div&gt;&lt;div style=&quot;font-size:17px;margin-top:6px&quot;&gt;BlackJAX (default) · PyMC · NumPyro · nutpie&lt;/div&gt;&lt;div style=&quot;font-size:15px;margin-top:6px;font-family:monospace&quot;&gt;nuts_sampler&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;spacing=10;fontFamily=Arial;fontSize=18;fillColor=#eef7fa;strokeColor=#8eb8c7;fontColor=#17334a;strokeWidth=1.5;" vertex="1" parent="1">
+          <mxGeometry x="20" y="268" width="440" height="104" as="geometry" />
+        </mxCell>
+        <mxCell id="8" value="&lt;div style=&quot;font-size:23px;font-weight:700&quot;&gt;Graph compilation&lt;/div&gt;&lt;div style=&quot;font-size:17px;margin-top:6px&quot;&gt;Choose JAX where the estimator supports it.&lt;/div&gt;&lt;div style=&quot;font-size:15px;margin-top:6px;font-family:monospace&quot;&gt;backend=&quot;jax&quot;&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;spacing=10;fontFamily=Arial;fontSize=18;fillColor=#f4f7fb;strokeColor=#afc0d0;fontColor=#17334a;strokeWidth=1.5;" vertex="1" parent="1">
+          <mxGeometry x="480" y="268" width="440" height="104" as="geometry" />
+        </mxCell>
+        <mxCell id="13" source="3" target="7" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;endArrow=block;endSize=7;strokeColor=#55788b;strokeWidth=1.5;html=1;exitX=0.5;exitY=1;entryX=0.2318181818181818;entryY=0;" edge="1" parent="1">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram name="Card preview">
+    <mxGraphModel>
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="2" value="&lt;div style=&quot;font-size:34px;font-weight:700&quot;&gt;NUTS&lt;/div&gt;&lt;div style=&quot;font-size:24px;margin-top:6px&quot;&gt;Posterior draws&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;spacing=10;fontFamily=Arial;fontSize=18;fillColor=#eef7fa;strokeColor=#8eb8c7;fontColor=#17334a;strokeWidth=1.5;" vertex="1" parent="1">
+          <mxGeometry x="10" y="10" width="262" height="102" as="geometry" />
+        </mxCell>
+        <mxCell id="3" value="&lt;div style=&quot;font-size:34px;font-weight:700&quot;&gt;MAP + Laplace&lt;/div&gt;&lt;div style=&quot;font-size:24px;margin-top:6px&quot;&gt;Mode + local SDs&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;spacing=10;fontFamily=Arial;fontSize=18;fillColor=#eef7fa;strokeColor=#8eb8c7;fontColor=#17334a;strokeWidth=1.5;" vertex="1" parent="1">
+          <mxGeometry x="292" y="10" width="262" height="102" as="geometry" />
+        </mxCell>
+        <mxCell id="4" value="&lt;div style=&quot;font-size:34px;font-weight:700&quot;&gt;VI&lt;/div&gt;&lt;div style=&quot;font-size:24px;margin-top:6px&quot;&gt;Approximate draws&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;spacing=10;fontFamily=Arial;fontSize=18;fillColor=#eef7fa;strokeColor=#8eb8c7;fontColor=#17334a;strokeWidth=1.5;" vertex="1" parent="1">
+          <mxGeometry x="10" y="130" width="262" height="102" as="geometry" />
+        </mxCell>
+        <mxCell id="5" value="&lt;div style=&quot;font-size:34px;font-weight:700&quot;&gt;SMC&lt;/div&gt;&lt;div style=&quot;font-size:24px;margin-top:6px&quot;&gt;Posterior particles&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;spacing=10;fontFamily=Arial;fontSize=18;fillColor=#eef7fa;strokeColor=#8eb8c7;fontColor=#17334a;strokeWidth=1.5;" vertex="1" parent="1">
+          <mxGeometry x="292" y="130" width="262" height="102" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

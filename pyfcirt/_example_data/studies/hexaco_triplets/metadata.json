@@ -1,0 +1,42 @@
+{
+  "synthetic": false,
+  "study": "Li, Zhang, Li, Sun and Brown (2025)",
+  "doi": "10.1177/10944281241229784",
+  "original_study": "https://osf.io/yvpz3/",
+  "source_package": "autoFC",
+  "source_version": "0.2.0.1001",
+  "source_objects": [
+    "triplet_example_data",
+    "triplet_block_info"
+  ],
+  "source_archive": "https://cran.r-project.org/src/contrib/Archive/autoFC/autoFC_0.2.0.1001.tar.gz",
+  "source_archive_sha256": "152f049782ebfab93e189d6aaf26f38aa198369c0b4d7a3c37e371c99e680323",
+  "license": "GPL-3.0-only",
+  "license_scope": "Numerical example data and design distributed with autoFC 0.2.0.1001",
+  "source_files": {
+    "source_responses.csv.gz": "ae122aa8b0ac2135931075bfd87c7aefbf8f149b53d79a3802318aac8580c936",
+    "source_design.csv": "f81014cbaa5990a097c97b872d35406154fd2b71f4b4dea7ea3a5e85bc3293ae"
+  },
+  "n_persons": 541,
+  "n_blocks": 5,
+  "n_statements": 15,
+  "n_traits": 6,
+  "default_n_persons": 100,
+  "stored_sample_sizes": [
+    50,
+    100,
+    541
+  ],
+  "response_direction": "1 prefers the first named statement; 0 prefers the second",
+  "response_direction_reference": "autoFC/man/triplet_example_data.Rd",
+  "task_reference": "Li et al. (2025), Measures: Forced-choice measures",
+  "keying_reference": "autoFC triplet_block_info; no sign inferred from responses",
+  "subset_policy": "first people of the author's published 541-person example",
+  "extract_scope": "The five-block autoFC example, not the complete original questionnaire",
+  "changes": [
+    "RData converted to numerical CSV and PyFCIRT's normalized response representation",
+    "Person IDs assigned from example row order; source values and missingness retained",
+    "Comparison columns use a pipe separator; full numerical block design retained",
+    "TIRT and MOLE declared on the design; no item wording or demographic fields included"
+  ]
+}

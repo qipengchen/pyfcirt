@@ -1,0 +1,522 @@
+{
+  "provenance": {
+    "reference": "mirt::probtrace and mirt::iteminfo(multidim_matrix=TRUE)",
+    "mirt_version": "1.48",
+    "R_version": "R version 4.5.3 (2026-03-11 ucrt)",
+    "factory": "simdata(..., Theta=fixed_grid, returnList=TRUE) population item objects; no model estimation",
+    "input_fixture_sha256": "ffcfd35ad37da09606bb292b742bea5b0dc306f80b0a9be96508243fe621d33b",
+    "actual_R_output_sha256": "9dd70d7dae9dbf282c83c87428f1c74dac04e107d2098077135b98c0244af1d9",
+    "R_script_sha256": "3ba3586e09049f9f0ff959984372db0c92c00ae0175e7686d9dc7d9f105de2d3",
+    "source_sha256": {
+      "fixture.json": "ffcfd35ad37da09606bb292b742bea5b0dc306f80b0a9be96508243fe621d33b",
+      "calculate.R": "3ba3586e09049f9f0ff959984372db0c92c00ae0175e7686d9dc7d9f105de2d3",
+      "simdata-body.R": "796a75a9bbe8e87cc503af6aecf8e89199531b885f998fa78b3b9c6cad6eb0c9",
+      "mirt/DESCRIPTION": "4f238e519880393c76eaa87d0afd789bd8a564e2b63650598be45db038cf0970",
+      "mirt/libs/x64/mirt.dll": "0705c0ee3f9dbffe0d195196c53edf31a3119a3503ede2c77b920b6bfe213519",
+      "mirt/R/mirt.rdb": "af019d1a589a666ba09e5e10cdae6e88c8b9b5755c5a87eb6d99cd53b9a6f0cb"
+    },
+    "official_binary_packages": {
+      "mirt": {
+        "version": "1.48",
+        "url": "https://cloud.r-project.org/bin/windows/contrib/4.5/mirt_1.48.zip",
+        "sha256": "5df5c4d18f01dd8102f9c0289f4e0d05c5f69c1a748fe6f7b7dc33cb7011bc65"
+      },
+      "Rcpp": {
+        "version": "1.1.2",
+        "url": "https://cloud.r-project.org/bin/windows/contrib/4.5/Rcpp_1.1.2.zip",
+        "sha256": "9028c64da2f0b9884883caa4d12a7f19bd0ddaa4585839f7ca2fdd942866b853"
+      },
+      "RcppArmadillo": {
+        "version": "15.6.2-1",
+        "url": "https://cloud.r-project.org/bin/windows/contrib/4.5/RcppArmadillo_15.6.2-1.zip",
+        "sha256": "38a7fc12340389db482bef14fff69657d10ecf1e1ba6e04e50b93d1cc7288819"
+      },
+      "RcppParallel": {
+        "version": "6.2.1",
+        "url": "https://cloud.r-project.org/bin/windows/contrib/4.5/RcppParallel_6.2.1.zip",
+        "sha256": "5e670ec4c38374b1bb1ffea865e5ee97b5f6b84ca02d0e6d729a50d924593604"
+      }
+    },
+    "mapping": {
+      "binary": "p=c+(u-c) logistic(a*theta-b), R d=-b; 1PL fixed a=1 via 2PL population factory",
+      "MGPCM": "R gpcm full category intercepts include baseline zero and score vector 0,...,K-1",
+      "TwoPLRank": "Direct dyad binary contrast only; native category reversal [1,0]. Not author triplet code."
+    },
+    "model_estimation": false,
+    "MCMC": false,
+    "tolerances": {
+      "probability_atol": 1e-10,
+      "information_atol": 1e-09,
+      "rtol": 0
+    }
+  },
+  "cases": [
+    {
+      "id": "1pl",
+      "native_family": "MIRT",
+      "native_kind": "1PL",
+      "dimension": 1,
+      "theta": [
+        [
+          0.0
+        ],
+        [
+          0.4
+        ],
+        [
+          -1.2
+        ]
+      ],
+      "loading": [
+        1.0
+      ],
+      "native_intercept": 0.35,
+      "lower": 0.0,
+      "upper": 1.0,
+      "mirt_itemtype": "2PL",
+      "probability_order": [
+        0,
+        1
+      ],
+      "R_probabilities": [
+        [
+          0.58661757891733,
+          0.41338242108267
+        ],
+        [
+          0.48750260351578967,
+          0.5124973964842103
+        ],
+        [
+          0.8249137318359602,
+          0.17508626816403985
+        ]
+      ],
+      "R_information": [
+        [
+          [
+            0.24249739502250012
+          ]
+        ],
+        [
+          [
+            0.24984381508111642
+          ]
+        ],
+        [
+          [
+            0.14443106686442977
+          ]
+        ]
+      ]
+    },
+    {
+      "id": "2pl",
+      "native_family": "MIRT",
+      "native_kind": "2PL",
+      "dimension": 2,
+      "theta": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          0.4,
+          -0.7
+        ],
+        [
+          -1.2,
+          0.5
+        ]
+      ],
+      "loading": [
+        0.9,
+        1.1
+      ],
+      "native_intercept": 0.35,
+      "lower": 0.0,
+      "upper": 1.0,
+      "mirt_itemtype": "2PL",
+      "probability_order": [
+        0,
+        1
+      ],
+      "R_probabilities": [
+        [
+          0.58661757891733,
+          0.41338242108267
+        ],
+        [
+          0.6813537337890255,
+          0.31864626621097447
+        ],
+        [
+          0.7068222210935676,
+          0.2931777789064324
+        ]
+      ],
+      "R_information": [
+        [
+          [
+            0.1964228899682251,
+            0.2400724210722751
+          ],
+          [
+            0.2400724210722751,
+            0.29342184797722515
+          ]
+        ],
+        [
+          [
+            0.1758597668250312,
+            0.2149397150083715
+          ],
+          [
+            0.2149397150083715,
+            0.26270409612134293
+          ]
+        ],
+        [
+          [
+            0.16785190077815798,
+            0.2051523231733042
+          ],
+          [
+            0.2051523231733042,
+            0.25074172832292735
+          ]
+        ]
+      ]
+    },
+    {
+      "id": "3pl",
+      "native_family": "MIRT",
+      "native_kind": "3PL",
+      "dimension": 2,
+      "theta": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          0.4,
+          -0.7
+        ],
+        [
+          -1.2,
+          0.5
+        ]
+      ],
+      "loading": [
+        0.9,
+        1.1
+      ],
+      "native_intercept": 0.35,
+      "lower": 0.18,
+      "upper": 1.0,
+      "mirt_itemtype": "3PL",
+      "probability_order": [
+        0,
+        1
+      ],
+      "R_probabilities": [
+        [
+          0.48102641471221064,
+          0.5189735852877894
+        ],
+        [
+          0.558710061707001,
+          0.441289938292999
+        ],
+        [
+          0.5795942212967254,
+          0.42040577870327456
+        ]
+      ],
+      "R_information": [
+        [
+          [
+            0.12829587696297887,
+            0.15680607184364082
+          ],
+          [
+            0.15680607184364082,
+            0.19165186558667213
+          ]
+        ],
+        [
+          [
+            0.10412743104834712,
+            0.12726686017020206
+          ],
+          [
+            0.12726686017020206,
+            0.15554838465246917
+          ]
+        ],
+        [
+          [
+            0.0959848055320833,
+            0.1173147623169907
+          ],
+          [
+            0.1173147623169907,
+            0.14338470949854418
+          ]
+        ]
+      ]
+    },
+    {
+      "id": "4pl",
+      "native_family": "MIRT",
+      "native_kind": "4PL",
+      "dimension": 2,
+      "theta": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          0.4,
+          -0.7
+        ],
+        [
+          -1.2,
+          0.5
+        ]
+      ],
+      "loading": [
+        0.9,
+        1.1
+      ],
+      "native_intercept": 0.35,
+      "lower": 0.12,
+      "upper": 0.88,
+      "mirt_itemtype": "4PL",
+      "probability_order": [
+        0,
+        1
+      ],
+      "R_probabilities": [
+        [
+          0.5658293599771708,
+          0.43417064002282924
+        ],
+        [
+          0.6378288376796594,
+          0.36217116232034063
+        ],
+        [
+          0.6571848880311113,
+          0.34281511196888864
+        ]
+      ],
+      "R_information": [
+        [
+          [
+            0.11199030525687896,
+            0.13687703975840762
+          ],
+          [
+            0.13687703975840762,
+            0.1672941597047204
+          ]
+        ],
+        [
+          [
+            0.0954678482199869,
+            0.11668292560220621
+          ],
+          [
+            0.11668292560220621,
+            0.1426124646249187
+          ]
+        ],
+        [
+          [
+            0.08917583127605033,
+            0.1089926826707282
+          ],
+          [
+            0.1089926826707282,
+            0.1332132788197789
+          ]
+        ]
+      ]
+    },
+    {
+      "id": "mgpcm",
+      "native_family": "MGPCM",
+      "dimension": 2,
+      "theta": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          0.4,
+          -0.7
+        ],
+        [
+          -1.2,
+          0.5
+        ]
+      ],
+      "loading": [
+        0.8,
+        1.2
+      ],
+      "category_intercept": [
+        0.0,
+        -0.3,
+        0.4,
+        -0.2
+      ],
+      "mirt_itemtype": "gpcm",
+      "probability_order": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "R_probabilities": [
+        [
+          0.24682986095780168,
+          0.18285605840587446,
+          0.36822688269220927,
+          0.2020871979441145
+        ],
+        [
+          0.46734017874445033,
+          0.2058314081415477,
+          0.24642493570287285,
+          0.08040347741112908
+        ],
+        [
+          0.3966620614595196,
+          0.20501531580758114,
+          0.28803577397249536,
+          0.11028684876040382
+        ]
+      ],
+      "R_information": [
+        [
+          [
+            0.7341953410589448,
+            1.101293011588417
+          ],
+          [
+            1.101293011588417,
+            1.6519395173826255
+          ]
+        ],
+        [
+          [
+            0.6603302513786772,
+            0.9904953770680156
+          ],
+          [
+            0.9904953770680156,
+            1.4857430656020232
+          ]
+        ],
+        [
+          [
+            0.7125203250306293,
+            1.068780487545944
+          ],
+          [
+            1.068780487545944,
+            1.6031707313189159
+          ]
+        ]
+      ]
+    },
+    {
+      "id": "two_pl_dyad",
+      "native_family": "TwoPLRank",
+      "dimension": 2,
+      "theta": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          0.4,
+          -0.7
+        ],
+        [
+          -1.2,
+          0.5
+        ]
+      ],
+      "loading": [
+        0.9,
+        -1.1
+      ],
+      "native_intercept": 0.4,
+      "lower": 0.0,
+      "upper": 1.0,
+      "mirt_itemtype": "2PL",
+      "statement_loading_magnitude": [
+        0.9,
+        1.1
+      ],
+      "statement_intercept": [
+        0.2,
+        -0.2
+      ],
+      "native_category_mapping_to_mirt": [
+        1,
+        0
+      ],
+      "scope": "Direct dyad binary contrast equivalence, not author triplet MUPP implementation",
+      "R_probabilities": [
+        [
+          0.598687660112452,
+          0.401312339887548
+        ],
+        [
+          0.3251947274176865,
+          0.6748052725823135
+        ],
+        [
+          0.8839110779310052,
+          0.11608892206899481
+        ]
+      ],
+      "R_information": [
+        [
+          [
+            0.19461120405063864,
+            -0.2378581382841139
+          ],
+          [
+            -0.2378581382841139,
+            0.2907155023472503
+          ]
+        ],
+        [
+          [
+            0.1777489245087127,
+            -0.2172486855106489
+          ],
+          [
+            -0.2172486855106489,
+            0.26552617117968197
+          ]
+        ],
+        [
+          [
+            0.08311595023590147,
+            -0.10158616139943513
+          ],
+          [
+            -0.10158616139943513,
+            0.12416086393264297
+          ]
+        ]
+      ]
+    }
+  ]
+}

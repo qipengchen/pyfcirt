@@ -1,0 +1,11 @@
+{
+  "source": "Existing simulated nine-family joint calibration",
+  "source_sha256": "27cc3447d9e1cc946fdf1dc668d0d00e21de8cbceba1c6b99be0b325b3d520aa",
+  "people": 128,
+  "chains": 4,
+  "draws_per_chain": 1000,
+  "parameter_source": "posterior means of final parameter vectors",
+  "curve_interpretation": "Function evaluated at posterior-mean parameters; not the posterior mean of the function.",
+  "score_support": "5th\u201395th percentile and rug of fitted posterior-mean scores, not a prior range or credible interval",
+  "mcmc_run": false
+}

@@ -1,0 +1,11 @@
+{
+  "version": "0.9-0",
+  "repository": "https://github.com/suyusung/R2jags",
+  "commit": "1caf7ac974ea45b1411e4cf36057ba026ca6db86",
+  "sha256_lf": {
+    "DESCRIPTION": "a212da805cafc6130c2749e1cd770597a4d1168deb8002a3eac14f397d5cf37f",
+    "R/jags.sims.R": "fc84d4d4d0c1c23bf0aaa141eb1ccb455b48e87e688fafe604288cb098bf6c62",
+    "R/as.bugs.array2.R": "3ee7c025bb73cca9d94f6a92626bb3b87a93fad3544a1b9b3e06076a7a6ecc12",
+    "R/mcmc2bugs.R": "90fea5af7897894b800814b58c2f3ef30ef5b63f79165d6339b1f4f883885dc4"
+  }
+}
