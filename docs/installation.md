@@ -1,6 +1,6 @@
 # Installation
 
-Choose one installation method. pip and conda require **Python 3.12 or newer**.
+For pip or conda, use Python 3.12 or later.
 The registry commands below become available when the beta is published.
 
 ## pip
