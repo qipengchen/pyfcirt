@@ -405,8 +405,9 @@ def _resolved_units(design, *, channel, defaults, wildcard, inline_options, over
         for field in (("model", "response_format", "scale") if channel == "fc" else ("model",))
         if field in design
     }
-    for unit in design[column].unique():
-        positions = groups[unit]
+    labels = design[column].to_numpy()
+    for positions in groups.values():
+        unit = labels[positions[0]]
         context = f"Unit {unit!r}"
         inline = _measurement_options(
             inline_options.get(unit, {}), channel=channel, context=context
@@ -634,6 +635,13 @@ def _member_positions(order, units, statements):
     return order.reindex(keys, fill_value=-1).to_numpy()
 
 
+def _comparison_member_positions(order, units, first, second):
+    """Look up both statement sides in one pass through the same membership index."""
+    return _member_positions(order, np.tile(units, 2), np.concatenate((first, second))).reshape(
+        2, len(units)
+    )
+
+
 def _source_rows(table, units, order, *, unit_column, purpose):
     storage_format = table.format
     if not isinstance(storage_format, str) or storage_format not in _FORMATS:
@@ -811,7 +819,7 @@ def _schedule_positions(source, constant, person, unit):
         if np.any(block < 0):
             raise ValueError("Item schedules use statement indices -1")
         order = frozen_statement_order(constant, indexed=True)
-        a, b = (_member_positions(order, block, side[pair]) for side in (first, second))
+        a, b = _comparison_member_positions(order, block, first[pair], second[pair])
         if np.any((a < 0) | (b < 0) | (a == b)):
             raise ValueError("Schedule comparisons must name two distinct unit members")
         left, right, reversed_pair[pair] = _ordered_pair(a - 1, b - 1)
@@ -970,8 +978,9 @@ def _canonical_response_rows(frame, order, *, comparison):
     keys = list(_RESPONSE_KEYS)
     reverse = None
     if comparison:
-        first = _member_positions(order, frame.unit_id, frame.statement_1)
-        second = _member_positions(order, frame.unit_id, frame.statement_2)
+        first, second = _comparison_member_positions(
+            order, frame.unit_id, frame.statement_1, frame.statement_2
+        )
         _reject_response_rows(
             frame,
             (first < 0) | (second < 0) | (first == second),
@@ -2002,8 +2011,8 @@ def generated_rows(prepared: PreparedInputs, values: xr.Dataset):
     if reserved_pairs:
         blocks = constant.unit_block.values[source.response_unit.values[reserved]]
         order = frozen_statement_order(constant, indexed=True)
-        positions[reserved[inactive]] = np.column_stack(
-            [_member_positions(order, blocks, side[reserved]) - 1 for side in (first, second)]
+        positions[reserved[inactive]] = (
+            _comparison_member_positions(order, blocks, first[reserved], second[reserved]).T - 1
         )
     rows.extend(
         zip(

@@ -41,15 +41,10 @@ def test_canonical_one_pl_has_one_loading_and_many_item_uses_without_inactive_q_
     assert loading.dims == ("loading_id",) and loading.shape == (1,)
     assert loading.free_flat.tolist() == [0] and not loading.fixed_flat.size
     uses = prepared.parameter_uses
-    rows = uses.where(uses.kind == "loading", drop=True)
+    rows = uses.isel(parameter_use=uses.kind == "loading")
     assert rows.entry_index.values.tolist() == [0, 0, 0]
-    assert set(prepared.constant_data.unit_id.values[rows.unit_index.values.astype(int)]) == {
-        "a",
-        "b",
-        "c",
-    }
-    assert set(rows.trait_index.values.tolist()) == {0, 1}
-    assert (rows.entry_index.values >= 0).all()
+    assert prepared.constant_data.unit_id.values[rows.unit_index.values].tolist() == ["a", "b", "c"]
+    assert rows.trait_index.values.tolist() == [0, 0, 1]
     assert "loading_id" in prepared.output_coords["loading_parameter_set_index"].dims
     assert "loading_item_index" not in prepared.output_coords
     assert "loading_trait_index" not in prepared.output_coords

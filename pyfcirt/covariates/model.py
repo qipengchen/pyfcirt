@@ -5,13 +5,24 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
+import jax.numpy as jnp
 import pytensor.tensor as pt
+from pytensor import wrap_jax
 from pytensor.tensor.variable import TensorVariable
 
 from pyfcirt.models.graph import RegressionBinding
 
 if TYPE_CHECKING:
     from pyfcirt.data.coordinates import PreparedRegression
+
+
+def _measurement_mean(matrix, coefficients):
+    return jnp.matmul(matrix, coefficients.T)
+
+
+def _theta_mean(matrix, coefficients, rows, pools):
+    """Select each person's group before multiplying to avoid a group grid."""
+    return jnp.einsum("...t,...t->...", matrix[rows], coefficients[pools])
 
 
 def build_regressions(
@@ -27,15 +38,16 @@ def build_regressions(
         matrix = pt.as_tensor_variable(plan.design.X.values, dtype=coefficients.dtype)
         if plan.targets[0].kind == "theta":
             (target,) = plan.targets
-            # Select each person's group before multiplying to avoid a group grid.
-            mean = pt.sum(matrix[target.row_index] * coefficients[target.pool_index], axis=-1)
+            mean = wrap_jax(_theta_mean, allow_eval=False)(
+                matrix, coefficients, target.row_index, target.pool_index
+            )
             target_bindings[(target.binding_id, target.prior_role)] = RegressionBinding(
                 mean=mean, scale=None, conditional=target.conditional, noncentered=False
             )
             continue
         scale_layout = next(block for block in plan.blocks if block.key == "residual_sd")
         scale = pt.reshape(parameters[scale_layout.kind], (-1,))[scale_layout.entry_index]
-        means = matrix @ coefficients.T
+        means = wrap_jax(_measurement_mean, allow_eval=False)(matrix, coefficients)
         for target in plan.targets:
             pools = target.pool_index
             target_bindings[target.binding_id, target.prior_role] = RegressionBinding(

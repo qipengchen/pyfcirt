@@ -287,45 +287,41 @@ def _parameter_scopes(constant):
     )
 
 
-def _measurement_slots(constant, bindings):
-    """Resolve each measurement slot once for parameter gathers and use projections."""
+def _measurement_parameter_uses(constant, bindings, rebuilt):
+    """Publish final gathers for local measurement slots and collect their uses."""
+    uses = []
     for measurement in constant.attrs["measurements"]:
         for slot in measurement["slots"]:
             owner, block = bindings[slot["binding_id"]]
             local = constant[slot["positions"]]
+            kind = block["kind"]
+            if kind in rebuilt:
+                values = constant[block["entry_index"]].values.ravel()[local.values]
+                variable = f"{measurement['name']}_{slot['key']}_entry_index"
+                slot["entry_index"] = variable
+                constant[variable] = local.dims, values
+            else:
+                values = constant[slot["entry_index"]].values
+            entries = values.ravel()
+            active = np.flatnonzero(entries >= 0)
+            if not active.size:
+                continue
+            positions = local.values.ravel()[active]
             dims = block["dims"]
-            positions = local.values.ravel()
-            traits = None
+            traits = -1
             if "trait" in dims:
                 traits = np.unravel_index(positions, block["shape"])[dims.index("trait")]
             elif "statement_indices" in owner and "statement" in dims[0]:
                 statements = constant[owner["statement_indices"]].values[positions]
                 traits = constant.statement_trait.values[statements]
-            yield measurement["unit_index"], slot, block, local, traits
-
-
-def _measurement_parameter_uses(constant, bindings, rebuilt):
-    """Publish final gathers for local measurement slots and collect their uses."""
-    uses = []
-    for unit, slot, block, local, traits in _measurement_slots(constant, bindings):
-        if block["kind"] in rebuilt:
-            values = constant[block["entry_index"]].values.ravel()[local.values]
-            measurement = constant.attrs["measurements"][unit]["name"]
-            slot["entry_index"] = variable = f"{measurement}_{slot['key']}_entry_index"
-            constant[variable] = local.dims, values
-        else:
-            values = constant[slot["entry_index"]].values
-        entries = values.ravel()
-        active = np.flatnonzero(entries >= 0)
-        if active.size:
             uses.append(
                 np.broadcast_arrays(
-                    block["kind"],
+                    kind,
                     entries[active],
-                    unit,
+                    measurement["unit_index"],
                     slot["key"],
                     active,
-                    -1 if traits is None else traits[active],
+                    traits,
                 )
             )
     return uses
@@ -806,7 +802,6 @@ def _layout_population(
     ds,
     people,
     traits,
-    trait_index,
     population,
     person_data,
     theta_parameterization,
@@ -835,20 +830,12 @@ def _layout_population(
             raise ValueError(
                 f"centered_traits contains unknown trait IDs: {centered - set(traits)}"
             )
-    ds.add_coords(
-        {
-            "centered_trait": _labels([trait for trait in traits if trait in centered]),
-            "noncentered_trait": _labels([trait for trait in traits if trait not in centered]),
-        }
-    )
-    ds["centered_index"] = (
-        "centered_trait",
-        np.array([trait_index[t] for t in ds.centered_trait.values], dtype=np.int64),
-    )
-    ds["noncentered_index"] = (
-        "noncentered_trait",
-        np.array([trait_index[t] for t in ds.noncentered_trait.values], dtype=np.int64),
-    )
+    labels = ds.trait.values
+    mask = np.array([trait in centered for trait in traits], dtype=bool)
+    for kind, selected in (("centered", mask), ("noncentered", ~mask)):
+        dim = f"{kind}_trait"
+        ds.add_coords({dim: labels[selected]})
+        ds[f"{kind}_index"] = dim, np.flatnonzero(selected).astype(np.int64, copy=False)
     ds.attrs["population"] = dict(
         name="population",
         specification=population,
@@ -882,9 +869,9 @@ def prepare_layout(
         label_column = "statement_id" if name == "fc" else "item_id"
         statement_keys.update(dict.fromkeys((name, label) for label in frame[label_column]))
         local_ids = blocks if name == "fc" else items
-        local_ids.update(dict.fromkeys(tables["units"].unit_id))
         for row in tables["units"].itertuples(index=False):
             index = len(units)
+            local_ids.setdefault(row.unit_id, None)
             unit_ids.append(row.unit_id)
             measurement = f"m{index}"
             labels = row.scale["labels"]
@@ -1004,7 +991,6 @@ def prepare_layout(
         ds,
         people,
         traits,
-        trait_index,
         population,
         person_data,
         theta_parameterization,

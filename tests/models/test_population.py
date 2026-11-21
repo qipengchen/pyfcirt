@@ -484,10 +484,16 @@ def test_explicit_trait_partition_builds_and_survives_scoring_and_generation(cen
     scored = fc.score_model(model, responses, parameters=point)
     generated = fc.simulate(model, source="fixed", parameters=point, random_seed=31)
     for candidate in (model, scored, generated):
-        assert candidate.prepared.constant_data.centered_trait.values.tolist() == expected
-        assert candidate.prepared.constant_data.noncentered_trait.values.tolist() == [
+        constant = candidate.prepared.constant_data
+        assert constant.centered_trait.values.tolist() == expected
+        assert constant.noncentered_trait.values.tolist() == [
             trait for trait in ("A", "B") if trait not in centered
         ]
+        for kind in ("centered", "noncentered"):
+            np.testing.assert_array_equal(
+                constant.trait.values[constant[f"{kind}_index"].values],
+                constant[f"{kind}_trait"].values,
+            )
 
 
 @pytest.mark.parametrize(
