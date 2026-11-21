@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import partial
 from warnings import warn
 
 import jax
@@ -17,6 +18,7 @@ from pyfcirt.analysis.prediction import (
     _seed,
     _take_states,
 )
+from pyfcirt.common.validation import has_labelled_axes
 
 
 def _prediction_states(model, predictions):
@@ -69,6 +71,7 @@ def _prediction_states(model, predictions):
     return posterior, replicas, probabilities, positions
 
 
+@jax.jit
 def _event_values(values, observed, replicated):
     """Extract the actual and replicated categories at each state in one gather."""
     values = jnp.asarray(values)
@@ -88,6 +91,7 @@ def _pearson_terms(log_probability):
     return jnp.moveaxis(terms, -1, 0)
 
 
+@partial(jax.jit, static_argnames=("n_groups",))
 def _aggregate_pearson(log_terms, group_index, n_groups):
     """Aggregate paired event discrepancies and compare them in log space."""
     group_index = jnp.asarray(group_index)
@@ -142,6 +146,47 @@ def _grouping(constant, groupby, selected):
     return groups, len(positions), axis, coords
 
 
+def _pearson_event_terms(
+    model, batches, posterior, replicas, probabilities, *, positions, native_logs, progressbar
+):
+    """Gather matched event terms, evaluating missing log probabilities in one call."""
+    terms, missing = [None] * len(batches), {}
+    for index, batch in enumerate(batches):
+        replicated = replicas[batch.response_name]
+        if replicated.dims != ("chain", "draw", batch.obs_dim):
+            raise ValueError(f"{batch.name}: replicated coordinates do not match actual events")
+        codes = replicated.values
+        if codes.dtype.kind not in "iu" or np.any(
+            (codes < 0) | (codes >= len(batch.events.labels))
+        ):
+            raise ValueError(f"{batch.name}: invalid replicated category")
+        dims = ("chain", "draw", batch.obs_dim, batch.category_dim)
+        (name,) = batch.distribution_names
+        if probabilities is not None and name in probabilities:
+            p = jnp.asarray(probabilities[name].transpose(*dims).values)
+            if not bool((jnp.isfinite(p) & (p >= 0) & (p <= 1)).all()):
+                raise FloatingPointError("Response probabilities must be finite and within [0,1]")
+            selected_p = _event_values(p, batch.y, codes)
+            if bool((selected_p > 0).all()):
+                terms[index] = _pearson_terms(jnp.log(selected_p))
+                continue
+        missing[batch.log_probability_name] = index, batch, codes
+    if missing:
+        evaluated = native_logs
+        if evaluated is None:
+            if positions is not None:
+                posterior = _take_states(
+                    posterior, positions, chains=replicas.chain.values, draws=replicas.draw.values
+                )
+            evaluated = _native_forward(
+                model._bindings, posterior, missing, progressbar=progressbar
+            )
+        for name, (index, batch, codes) in missing.items():
+            log_p = evaluated[name].transpose("chain", "draw", batch.obs_dim, batch.category_dim)
+            terms[index] = _pearson_terms(_event_values(log_p.values, batch.y, codes))
+    return jnp.concatenate(terms, axis=-1)
+
+
 def chi_ppp(
     model,
     *,
@@ -192,6 +237,7 @@ def chi_ppp(
     if predictions is None and draws is None and "posterior_predictive" in model.idata:
         predictions = model.idata
     fresh = predictions is None
+    positions = None
     if fresh:
         seed = _seed(random_seed)
         posterior = posterior_samples(model.idata, mcmc=True)
@@ -214,41 +260,16 @@ def chi_ppp(
         replicas = prepare_output(prepared, replicas, "posterior_predictive")
         if probabilities is not None:
             probabilities = prepare_output(prepared, probabilities, "response_probabilities")
-    terms, missing = [None] * len(batches), {}
-    for index, batch in enumerate(batches):
-        replicated = replicas[batch.response_name]
-        if replicated.dims != ("chain", "draw", batch.obs_dim):
-            raise ValueError(f"{batch.name}: replicated coordinates do not match actual events")
-        codes = replicated.values
-        if codes.dtype.kind not in "iu" or np.any(
-            (codes < 0) | (codes >= len(batch.events.labels))
-        ):
-            raise ValueError(f"{batch.name}: invalid replicated category")
-        dims = ("chain", "draw", batch.obs_dim, batch.category_dim)
-        (name,) = batch.distribution_names
-        if probabilities is not None and name in probabilities:
-            p = jnp.asarray(probabilities[name].transpose(*dims).values)
-            if not bool((jnp.isfinite(p) & (p >= 0) & (p <= 1)).all()):
-                raise FloatingPointError("Response probabilities must be finite and within [0,1]")
-            selected_p = _event_values(p, batch.y, codes)
-            if bool((selected_p > 0).all()):
-                terms[index] = _pearson_terms(jnp.log(selected_p))
-                continue
-        missing[batch.log_probability_name] = index, batch, codes
-    if missing:
-        evaluated = replicas
-        if not fresh:
-            if positions is not None:
-                posterior = _take_states(
-                    posterior, positions, chains=replicas.chain.values, draws=replicas.draw.values
-                )
-            evaluated = _native_forward(
-                model._bindings, posterior, missing, progressbar=progressbar
-            )
-        for name, (index, batch, codes) in missing.items():
-            log_p = evaluated[name].transpose("chain", "draw", batch.obs_dim, batch.category_dim)
-            terms[index] = _pearson_terms(_event_values(log_p.values, batch.y, codes))
-    log_terms = jnp.concatenate(terms, axis=-1)
+    log_terms = _pearson_event_terms(
+        model,
+        batches,
+        posterior,
+        replicas,
+        probabilities,
+        positions=positions,
+        native_logs=replicas if fresh else None,
+        progressbar=progressbar,
+    )
     values = tuple(np.asarray(value) for value in _aggregate_pearson(log_terms, grouping, count))
     log_actual, log_replica, raw_actual, raw_replica, difference, indicator, n_obs = values
     coords = {"chain": replicas.chain, "draw": replicas.draw, **group_coords}
@@ -287,9 +308,7 @@ def chi_ppp(
     else:
         result["PPP_mcse"] = xr.full_like(result.PPP, np.nan)
         mcse_method = "unavailable for selected states or fewer than four ordered draws"
-    overflow = not all(
-        bool(jnp.isfinite(value).all()) for value in (raw_actual, raw_replica, difference)
-    )
+    overflow = not all(np.isfinite(value).all() for value in (raw_actual, raw_replica, difference))
     if overflow:
         warn(
             "Raw Pearson discrepancy exceeds floating-point range; log_D and PPP remain available.",
@@ -332,14 +351,56 @@ def chi_ppp(
     return result
 
 
+def _cached_residual_inputs(model, posterior, expected):
+    """Read only full-draw outputs from the current posterior and prepared design."""
+    run = model.idata.attrs.get("posterior_run_id")
+    cached = {}
+    if run is None:
+        return cached
+    for group in ("response_probabilities", "response_parameters"):
+        node = model.idata.get(group)
+        if (
+            node is None
+            or node.attrs.get("posterior_run_id") != run
+            or node.attrs.get("prediction_run_id") is None
+        ):
+            continue
+        values = node.to_dataset()
+        if any(name in values.coords for name in _SOURCE_COORDS) or not has_labelled_axes(
+            values, ("chain", "draw")
+        ):
+            continue
+        if any(not values.indexes[dim].equals(posterior.indexes[dim]) for dim in ("chain", "draw")):
+            continue
+        names = [
+            name for name in values if name in expected and values[name].dims == expected[name]
+        ]
+        try:
+            selected = prepare_output(model.prepared, values[names], group)
+        except ValueError:
+            # Invalid or stale cached output does not make the posterior unusable.
+            continue
+        cached.update(selected.reset_coords(drop=True).data_vars)
+    return cached
+
+
 def residuals(model, *, progressbar=True) -> xr.Dataset:
     """Return observed-minus-expected response residuals at actual posterior states."""
     posterior = posterior_samples(model.idata, mcmc=True)
     prepared = model.prepared
     if any(batch.y is None for batch in prepared.batches):
         raise ValueError("Residuals require actual observed responses")
-    names = [name for batch in prepared.batches for name in batch.distribution_names]
-    evaluated = _native_forward(model._bindings, posterior, names, progressbar=progressbar)
+    expected = {}
+    for batch in prepared.batches:
+        dims = ("chain", "draw", batch.obs_dim)
+        if batch.likelihood_kind != "beta":
+            dims += (batch.category_dim,)
+        expected.update(dict.fromkeys(batch.distribution_names, dims))
+    evaluated = _cached_residual_inputs(model, posterior, expected)
+    if missing := [name for name in expected if name not in evaluated]:
+        evaluated.update(
+            _native_forward(model._bindings, posterior, missing, progressbar=progressbar).data_vars
+        )
     result = {}
     for batch in prepared.batches:
         observation_coords = {batch.obs_dim: prepared.constant_data[batch.obs_dim]}

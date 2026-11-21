@@ -152,6 +152,7 @@ def freeze_prior_shapes(ds, layout, priors, *, only_roles=None):
     """Validate free-block shapes and retain their native templates before construction."""
     shapes = {} if only_roles is None else dict(layout["prior_shapes"])
     records = {}
+    layout_shape = tuple(layout["shape"])
     for role, positions in freeze_prior_groups(ds, layout).items():
         if only_roles is not None and role not in only_roles:
             continue
@@ -161,7 +162,7 @@ def freeze_prior_shapes(ds, layout, priors, *, only_roles=None):
         batch, event = prior_shape(prior)
         count = len(positions)
         if layout["domain"] == "correlation":
-            shape = tuple(layout["shape"])
+            shape = layout_shape
         elif layout.get("shared"):
             shape = ()
         elif layout["ordered"]:
@@ -170,7 +171,7 @@ def freeze_prior_shapes(ds, layout, priors, *, only_roles=None):
                     f"{layout['binding_id']}: a joint ordered prior needs a user-owned pm.Model; "
                     "the iid permutation factor does not normalize a joint event"
                 )
-            cutpoints = layout["shape"][-1]
+            cutpoints = layout_shape[-1]
             shape = (count // cutpoints,)
         elif event:
             if int(np.prod(event)) != count:
@@ -179,12 +180,10 @@ def freeze_prior_shapes(ds, layout, priors, *, only_roles=None):
                     "fixed entries or partial event components cannot be discarded"
                 )
             shape = event
+        elif batch == layout_shape and count == int(np.prod(layout_shape)):
+            shape = layout_shape
         else:
-            shape = (
-                tuple(layout["shape"])
-                if (tuple(layout["shape"]) == batch and count == int(np.prod(layout["shape"])))
-                else (count,)
-            )
+            shape = (count,)
         validate_prior(prior, shape=shape, role=str(role), domain=layout["domain"])
         records[str(role)] = prior
         strict = prior_orientation(prior, role=str(role))
@@ -597,37 +596,21 @@ def _check_population_directions(ds):
             )
 
 
-def freeze_layout(constant_data: LayoutBuilder) -> LayoutBuilder:
-    """Select identification once and retain native declarations and index arrays."""
-    ds = constant_data
-    owners, measurements = ds.attrs["owners"], ds.attrs["measurements"]
-    for owner in owners:
-        if owner["channel"] == "fc":
-            _fc_owner(ds, owner, measurements)
-        else:
-            _item_owner(ds, owner, measurements)
-    pair_rows = []
-    for measurement in measurements:
-        _measurement(ds, measurement, pair_rows)
-    pairs = np.asarray(pair_rows, dtype=np.int64).reshape(-1, 5)
-    ds.add_coords({"pair": np.arange(len(pairs), dtype=np.int64)})
-    ds["pair_positions"] = ("pair", "pair_member"), pairs[:, 1:3]
-    ds["pair_unit"] = "pair", pairs[:, 0]
-    ds["pair_statement_1"] = "pair", pairs[:, 3]
-    ds["pair_statement_2"] = "pair", pairs[:, 4]
+def _resolve_measurement_priors(ds, owners, measurements):
+    """Resolve priors from active roles, then check sharing and each concrete shape."""
     scopes = (*owners, *measurements)
-    active = {scope["name"]: _roles(ds, scope["blocks"]) for scope in scopes}
+    active_roles = {scope["name"]: _roles(ds, scope["blocks"]) for scope in scopes}
     requests, owner_roles = {}, {}
     for owner in owners:
         overlap_roles = owner.pop("_overlap_roles", ())
-        shared_roles = active[owner["name"]] | frozenset(overlap_roles)
+        shared_roles = active_roles[owner["name"]] | frozenset(overlap_roles)
         owner_roles[owner["name"]] = overlap_roles, shared_roles
         for index in owner["units"]:
             measurement = measurements[index]
             spec = measurement["specification"]
             if id(spec) not in requests:
                 requests[id(spec)] = spec, set()
-            requests[id(spec)][1].update(shared_roles | active[measurement["name"]])
+            requests[id(spec)][1].update(shared_roles | active_roles[measurement["name"]])
     resolved_specs = {
         key: resolve_spec(spec, active_roles=frozenset(roles))
         for key, (spec, roles) in requests.items()
@@ -666,7 +649,7 @@ def freeze_layout(constant_data: LayoutBuilder) -> LayoutBuilder:
                     )
     for scope in scopes:
         resolved = scope["specification"]
-        roles = active[scope["name"]]
+        roles = active_roles[scope["name"]]
         if roles != resolved.priors.keys():
             scope["specification"] = replace(
                 resolved,
@@ -675,6 +658,27 @@ def freeze_layout(constant_data: LayoutBuilder) -> LayoutBuilder:
         for layout in scope["blocks"]:
             freeze_prior_shapes(ds, layout, resolved.priors)
         check_asymptote_priors(scope["blocks"], resolved.priors)
+
+
+def freeze_layout(constant_data: LayoutBuilder) -> LayoutBuilder:
+    """Select identification once and retain native declarations and index arrays."""
+    ds = constant_data
+    owners, measurements = ds.attrs["owners"], ds.attrs["measurements"]
+    for owner in owners:
+        if owner["channel"] == "fc":
+            _fc_owner(ds, owner, measurements)
+        else:
+            _item_owner(ds, owner, measurements)
+    pair_rows = []
+    for measurement in measurements:
+        _measurement(ds, measurement, pair_rows)
+    pairs = np.asarray(pair_rows, dtype=np.int64).reshape(-1, 5)
+    ds.add_coords({"pair": np.arange(len(pairs), dtype=np.int64)})
+    ds["pair_positions"] = ("pair", "pair_member"), pairs[:, 1:3]
+    ds["pair_unit"] = "pair", pairs[:, 0]
+    ds["pair_statement_1"] = "pair", pairs[:, 3]
+    ds["pair_statement_2"] = "pair", pairs[:, 4]
+    _resolve_measurement_priors(ds, owners, measurements)
     _population(ds)
     for owner in owners:
         del owner["units"]

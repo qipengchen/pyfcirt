@@ -45,14 +45,12 @@ def simulate(
     Truth is stored under parameters/generation, never as a posterior or as the
     fixed conditions of the returned model. No posterior MCMC is performed.
     """
-    from pyfcirt.analysis.output import posterior_samples, read_parameter_point
     from pyfcirt.analysis.prediction import _jax_key, _native_forward, _seed
     from pyfcirt.data.prepare import (
         _calibration_values,
         _prepare_automatic_generation,
         _prepare_generated,
         _prepare_generation,
-        _simulation_parameter_point,
         _validate_parameters,
     )
     from pyfcirt.model import Model
@@ -87,46 +85,28 @@ def simulate(
             response_format=response_format,
             seed=int(jax.random.bits(selection, dtype=jnp.uint32)),
         )
-        model = Model(prepared)
-    prepared = model.prepared
-    point, selected_draw = None, None
-    if source == "posterior":
-        posterior = posterior_samples(model.idata)
-        if draw is None:
-            index = int(
-                jax.random.randint(
-                    selection, (), 0, posterior.sizes["chain"] * posterior.sizes["draw"]
-                )
-            )
-            draw = (
-                posterior.chain.values[index // posterior.sizes["draw"]],
-                posterior.draw.values[index % posterior.sizes["draw"]],
-            )
-        point = read_parameter_point(
-            model, posterior=posterior, draw=draw, include_person=administration is None
-        )
-        selected_draw = tuple(draw)
-    elif source == "fixed":
-        point = _simulation_parameter_point(prepared, parameters)
-        if administration is None:
-            point = _validate_parameters(
-                model.prepared,
-                point,
-                fixed_parameters=model._fixed_reference,
-                include_theta=True,
-            )
-
-    if source == "prior":
-        model._prior_conditioning()
-    if administration is None:
-        graph = model._bindings
+        # Preparation already owns the full graph contract. Only the completed
+        # generated analysis needs a Model and its published result metadata.
+        graph = ModelGraph.build(prepared)
+        point = selected_draw = None
     else:
-        fixed = None
-        if point is not None:
-            fixed = _calibration_values(prepared, point, existing=prepared.fixed_parameters)
-        prepared = _prepare_generation(prepared, administration, fixed_parameters=fixed)
-        approximation = model._calibration_prior if source == "prior" else None
-        graph = ModelGraph.build(prepared, approximation=approximation)
+        prepared = model.prepared
+        point, selected_draw = _generation_point(
+            model, source, parameters, draw, selection, existing_people=administration is None
+        )
+        if source == "prior":
+            model._prior_conditioning()
+        if administration is None:
+            graph = model._bindings
+        else:
+            fixed = (
+                _calibration_values(prepared, point, existing=prepared.fixed_parameters)
+                if point is not None
+                else None
+            )
+            prepared = _prepare_generation(prepared, administration, fixed_parameters=fixed)
+            approximation = model._calibration_prior if source == "prior" else None
+            graph = ModelGraph.build(prepared, approximation=approximation)
     names = [*prepared.point_layouts, "theta"]
     response_names = [batch.response_name for batch in prepared.batches]
     if source == "prior" or administration is not None:
@@ -170,3 +150,38 @@ def simulate(
     result = Model(state)
     result._publish_outputs({"parameters/generation": truth})
     return result
+
+
+def _generation_point(model, source, parameters, draw, selection, *, existing_people):
+    """Select and align the supplied point or one actual posterior draw."""
+    from pyfcirt.analysis.output import posterior_samples, read_parameter_point
+    from pyfcirt.data.prepare import _simulation_parameter_point, _validate_parameters
+
+    point = selected_draw = None
+    if source == "posterior":
+        posterior = posterior_samples(model.idata)
+        if draw is None:
+            index = int(
+                jax.random.randint(
+                    selection, (), 0, posterior.sizes["chain"] * posterior.sizes["draw"]
+                )
+            )
+            draw = (
+                posterior.chain.values[index // posterior.sizes["draw"]],
+                posterior.draw.values[index % posterior.sizes["draw"]],
+            )
+        point = read_parameter_point(
+            model, posterior=posterior, draw=draw, include_person=existing_people
+        )
+        selected_draw = tuple(draw)
+    elif source == "fixed":
+        point = _simulation_parameter_point(model.prepared, parameters)
+        if existing_people:
+            point = _validate_parameters(
+                model.prepared,
+                point,
+                fixed_parameters=model._fixed_reference,
+                include_theta=True,
+            )
+
+    return point, selected_draw

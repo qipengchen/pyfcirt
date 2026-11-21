@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import NamedTuple
 
@@ -21,7 +21,7 @@ class TaskInfo(NamedTuple):
 
 def warmup(
     key,
-    state,
+    position,
     *,
     logdensity,
     tune,
@@ -40,7 +40,7 @@ def warmup(
         adaptation_info_fn=lambda state, info, adaptation: None,
         max_num_doublings=max_num_doublings,
     )
-    result, _ = adaptation.run(key, state.position, num_steps=tune)
+    result, _ = adaptation.run(key, position, num_steps=tune)
     return result.state, result.parameters
 
 
@@ -183,15 +183,27 @@ class TaskGraph:
         values = self.evaluate(*(position[name] for name in self.value_names))[1:]
         return dict(zip(self.output_names, values, strict=True))
 
-    def initial_state(self, *, random_seed=None, initvals=None):
-        """Use native support points and the native BlackJAX cached state."""
-        from pymc.initial_point import make_initial_point_fn
+    def initial_positions(self, seeds, *, initvals=None):
+        """Use PyMC's per-chain initializers with one compilation for shared settings."""
+        from pymc.initial_point import make_initial_point_fns_per_chain
 
-        initial = make_initial_point_fn(model=self.model, overrides=dict(initvals or {}))(
-            random_seed
+        if isinstance(initvals, Mapping):
+            overrides = dict(initvals)
+        elif initvals is None:
+            overrides = None
+        else:
+            overrides = list(initvals)
+            if len(overrides) != len(seeds):
+                raise ValueError("initvals must contain one native initial-value mapping per chain")
+            overrides = [dict(values or {}) for values in overrides]
+        initialize = make_initial_point_fns_per_chain(
+            model=self.model, overrides=overrides, chains=len(seeds)
         )
-        position = {name: jnp.asarray(initial[name]) for name in self.value_names}
-        state = blackjax.nuts.init(position, self.logdensity)
-        if not np.isfinite(state.logdensity):
-            raise ValueError("The native initial point has nonfinite task density")
-        return state
+        positions = []
+        for function, seed in zip(initialize, seeds, strict=True):
+            initial = function(seed)
+            position = {name: jnp.asarray(initial[name]) for name in self.value_names}
+            if not np.isfinite(self.logdensity(position)):
+                raise ValueError("The native initial point has nonfinite task density")
+            positions.append(position)
+        return positions

@@ -184,6 +184,57 @@ def test_information_reliability_small_nested_grid_matches_independent_scalar_fo
     assert actual.attrs["calibration_uncertainty"] == "excluded"
 
 
+def test_rank_information_reliability_batches_observations_and_population(monkeypatch):
+    from importlib import import_module
+
+    import pandas as pd
+
+    import pyfcirt as fc
+    from tests.helpers import supplied_posterior
+
+    rows = 65
+    source = fc.FCInput(
+        fc.FCDesignMapping(traits={"A": ["a", "c"], "B": ["b"]}, blocks={"triad": ["a", "b", "c"]}),
+        fc.ResponseTable(
+            pd.DataFrame(
+                {"person_id": np.arange(rows), "block_id": "triad", "response": [[1, 2, 3]] * rows}
+            ),
+            format="block_long",
+        ),
+        model=fc.TIRTRank(loading_anchors={"a": 1.0, "b": 0.8}),
+        response_format="rank",
+    )
+    model = fc.Model(fc.PreparedInputs.from_inputs(source))
+    prior = fc.prior_predictive(model, draws=1, random_seed=16, store=False)
+    point = prior["prior"].to_dataset().isel(chain=0, draw=0, drop=True)
+    point = point.assign(
+        theta=point.theta.copy(
+            data=np.linspace(-0.5, 0.5, point.theta.size).reshape(point.theta.shape)
+        ),
+        statement_intercept=xr.zeros_like(point.statement_intercept),
+        population_mean=xr.zeros_like(point.population_mean),
+    )
+    supplied_posterior(model, point, inference_method="mcmc")
+    module = import_module("pyfcirt.analysis.information")
+    original = module._batch_fisher
+    sizes = []
+
+    def record(theta, *args, **kwargs):
+        sizes.append(len(theta))
+        return original(theta, *args, **kwargs)
+
+    monkeypatch.setattr(module, "_batch_fisher", record)
+    settings = dict(points=64, refine_points=128, scrambles=2)
+    batched = fc.information_reliability(model, **settings)
+    assert sizes == [64, 1, 64, 1] + [64] * 8
+    assert batched.attrs["chunk_size"] == 64
+    sizes.clear()
+    baseline = fc.information_reliability(model, **settings, chunk_size=128)
+    assert sizes == [65, 65] + [128] * 4
+    xr.testing.assert_allclose(batched, baseline, rtol=1e-10, atol=1e-12)
+    assert {**batched.attrs, "chunk_size": 128} == baseline.attrs
+
+
 def test_information_reliability_rejects_different_actual_answered_forms():
     from pyfcirt.analysis.reliability import information_reliability
 

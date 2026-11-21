@@ -39,6 +39,8 @@ def test_ppp_uses_saved_discrepancies_and_empty_group_annotation(check):
     xr.testing.assert_identical(check, before)
     selected = fc.plot_ppp(check, coords={"unit": "observed"})
     assert len(selected.axes) == 1
+    repeated = fc.plot_ppp(check, coords={"unit": ["observed", "observed"]})
+    assert [ax.get_title() for ax in repeated.axes] == ["observed", "observed"]
 
 
 @pytest.mark.parametrize("quantile_range", [None, (0.01, 0.99)])
@@ -305,8 +307,8 @@ def test_ridge_bounds_lazy_reads_before_materializing_samples():
     )
     assert not reads
     assert fc.plot_ridge(posterior, max_rows=2, ci_probs=()) is not None
-    assert reads
-    assert set(np.concatenate([value.ravel() for value in reads])) == {0, 1}
+    assert len(reads) == 1
+    assert set(reads[0]) == {0, 1}
 
 
 @pytest.mark.parametrize("statistic", ["count", "proportion"])
@@ -339,3 +341,23 @@ def test_response_plot_preserves_distinct_typed_categories(statistic):
         heights, np.array([1, 2, 3]) / (6 if statistic == "proportion" else 1)
     )
     pd.testing.assert_frame_equal(long, before)
+
+
+def test_response_plot_keeps_panels_with_colliding_display_titles():
+    pytest.importorskip("seaborn")
+    summary = pd.DataFrame(
+        {
+            "block": ["B1", "B1 / pair=a > b"],
+            "pair": [("a", "b"), None],
+            "category": [1, 1],
+            "category_label": ["first", "first"],
+            "block_label": ["B1", "B1 / pair=a > b"],
+            "pair_label": ["a > b", None],
+            "n_valid": [2, 5],
+            "count": [2, 5],
+        }
+    )
+    grid = fc.plot_response_distribution(summary, statistic="count")
+    axes = list(grid.axes.flat)
+    assert len({axis.get_title() for axis in axes}) == 2
+    assert [axis.patches[0].get_height() for axis in axes] == [2, 5]

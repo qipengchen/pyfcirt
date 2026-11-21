@@ -6,11 +6,9 @@ from collections.abc import Sequence
 from math import isfinite, prod
 from numbers import Real
 
-import jax.numpy as jnp
 import numpy as np
 import pandas as pd
 import xarray as xr
-from jax import devices, enable_x64
 
 from pyfcirt.common.validation import align_rows, require_frame
 from pyfcirt.covariates.specification import Regression, _formula_columns
@@ -51,18 +49,16 @@ def _numeric(values, context, name, keys):
         or pd.api.types.is_complex_dtype(values)
     ):
         _feature_error(context, name, keys, [True] * len(keys), "requires real numeric values")
-    # Formulae consumes host tables; frozen transforms must not inherit the model's device.
-    array = jnp.asarray(
-        values.to_numpy(dtype="float64"), dtype=jnp.float64, device=devices("cpu")[0]
-    )
-    invalid = ~jnp.isfinite(array)
-    if bool(invalid.any()):
-        _feature_error(context, name, keys, invalid.tolist(), "contains nonfinite values")
+    # Keep Formulae preprocessing at host float64 precision on every backend.
+    array = values.to_numpy(dtype="float64")
+    invalid = ~np.isfinite(array)
+    if invalid.any():
+        _feature_error(context, name, keys, invalid, "contains nonfinite values")
     return array
 
 
 def _rescale(values, record):
-    return np.asarray((values - record["center"]) / record["scale"])
+    return (values - record["center"]) / record["scale"]
 
 
 def _training_features(frame, keys, reference, spec, context):
@@ -75,8 +71,9 @@ def _training_features(frame, keys, reference, spec, context):
         if numeric and not isinstance(values.dtype, pd.CategoricalDtype):
             array = _numeric(values, context, name, keys)
             selected = array[reference]
-            deviation = float(selected.std(ddof=0))
-            if deviation == 0 or not bool(jnp.isfinite(deviation)):
+            with np.errstate(over="ignore"):
+                deviation = float(selected.std(ddof=0))
+            if deviation == 0 or not isfinite(deviation):
                 _feature_error(
                     context, name, keys, reference.tolist(), "has zero reference variation"
                 )
@@ -93,7 +90,8 @@ def _training_features(frame, keys, reference, spec, context):
         else:
             observed = _category_values(values, context, name, keys)
             if isinstance(values.dtype, pd.CategoricalDtype):
-                levels = [value for value in values.cat.categories if value in observed]
+                present = set(observed)
+                levels = [value for value in values.cat.categories if value in present]
                 levels = _category_values(levels, context, name, keys)
             else:
                 levels = list(dict.fromkeys(observed))
@@ -119,10 +117,8 @@ def _transformed(frame, records, keys, context):
         else:
             observed = _category_values(values, context, name, keys)
             levels = record["levels"]
-            invalid = [
-                not any(type(value) is type(level) and value == level for level in levels)
-                for value in observed
-            ]
+            allowed = {(type(level), level) for level in levels}
+            invalid = [(type(value), value) not in allowed for value in observed]
             if any(invalid):
                 _feature_error(context, name, keys, invalid, "contains unknown training categories")
             result[name] = pd.Categorical(observed, categories=levels, ordered=True)
@@ -144,34 +140,44 @@ def _compile(formula, frame, include_intercept):
 
 
 def _finite_matrix(matrix, keys, context):
-    with enable_x64():
-        invalid = ~jnp.isfinite(jnp.asarray(matrix.to_numpy(dtype="float64")))
-    for index, name in enumerate(matrix.columns):
-        if bool(invalid[:, index].any()):
-            _feature_error(
-                context, name, keys, invalid[:, index].tolist(), "has nonfinite design values"
-            )
+    values = matrix.to_numpy(dtype="float64")
+    invalid = ~np.isfinite(values)
+    columns = np.flatnonzero(invalid.any(axis=0))
+    if len(columns):
+        index = columns[0]
+        _feature_error(
+            context, matrix.columns[index], keys, invalid[:, index], "has nonfinite design values"
+        )
+    return values
 
 
 def fit_design(
     spec: Regression,
-    keys: pd.DataFrame,
+    keys: pd.DataFrame | None,
     *,
     reference_rows: Sequence[bool] | None = None,
     include_intercept: bool = True,
+    aligned_rows: tuple[np.ndarray, pd.Index] | None = None,
+    feature_columns: tuple[str, ...] | None = None,
 ) -> xr.Dataset:
-    """Align entity rows and freeze their Formulae coding and training transforms."""
+    """Freeze Formulae coding and training transforms in the requested entity order.
+
+    An internal caller can supply rows already matched against this same source
+    table and ID columns, or feature columns from the syntax check.
+    """
     if not isinstance(spec, Regression):
         raise TypeError("fit_design requires a Regression declaration")
     if not isinstance(include_intercept, bool):
         raise TypeError("include_intercept must be a bool")
     formula = spec.formula.strip()
     columns = (spec.id,) if isinstance(spec.id, str) else spec.id
-    features = _formula_columns(formula)
+    features = _formula_columns(formula) if feature_columns is None else feature_columns
     if set(features).intersection(columns):
         raise ValueError("Regression formula cannot include its ID columns")
     context = f"Regression {formula!r}"
-    positions, identities = align_rows(spec.data, keys, columns, context)
+    positions, identities = (
+        align_rows(spec.data, keys, columns, context) if aligned_rows is None else aligned_rows
+    )
     frame = _feature_rows(spec.data, features, positions, identities, context)
     if reference_rows is None:
         reference = np.ones(len(frame), dtype=bool)
@@ -181,10 +187,9 @@ def fit_design(
             raise TypeError("reference_rows must contain bool values")
         if reference.shape != (len(frame),) or not reference.any():
             raise ValueError("reference_rows must match keys and select at least one row")
-    with enable_x64():
-        records, prior_scales = _training_features(frame, identities, reference, spec, context)
+    records, prior_scales = _training_features(frame, identities, reference, spec, context)
     common, matrix, version = _compile(formula, frame, include_intercept)
-    _finite_matrix(matrix, identities, context)
+    values = _finite_matrix(matrix, identities, context)
     terms = list(matrix.columns)
     if not terms:
         raise ValueError(f"{context} has no design columns; an empty regression is unnecessary")
@@ -211,7 +216,7 @@ def fit_design(
         float(spec.parameter_residual_sd) if isinstance(spec.parameter_residual_sd, Real) else None
     )
     result = xr.Dataset(
-        {"X": (("row", "term"), matrix.to_numpy(dtype="float64"))},
+        {"X": (("row", "term"), values)},
         coords=dict(row=np.arange(len(frame)), term=terms),
         attrs=dict(
             formula=formula,
@@ -247,8 +252,7 @@ def apply_design(
     records = attrs["feature_records"]
     context = f"Regression {attrs['formula']!r}"
     frame = _feature_rows(data, [r["name"] for r in records], positions, identities, context)
-    with enable_x64():
-        transformed = _transformed(frame, records, identities, context)
+    transformed = _transformed(frame, records, identities, context)
     common = attrs["encoder"]
     terms = training.term.values.tolist()
     matrix = common.evaluate_new_data(transformed).as_dataframe()
@@ -256,9 +260,8 @@ def apply_design(
         matrix = matrix.drop(columns="Intercept", errors="ignore")
     if list(matrix.columns) != terms:
         raise ValueError(f"{context}: new-data design columns differ from the frozen encoding")
-    _finite_matrix(matrix, identities, context)
     return xr.DataArray(
-        matrix.to_numpy(dtype="float64"),
+        _finite_matrix(matrix, identities, context),
         dims=("row", "term"),
         coords=dict(row=np.arange(len(frame)), term=terms),
         name="X",

@@ -8,7 +8,7 @@ import jax.numpy as jnp
 import numpy as np
 import pymc as pm
 import pytensor.tensor as pt
-from jax import lax
+from jax import jit, lax
 from jax import random as jr
 from pymc.distributions.dist_math import check_parameters
 from pymc.distributions.transforms import LogTransform, Transform
@@ -85,9 +85,9 @@ class TIRTRankDistribution(pm.Distribution):
         loading = values["loading_magnitude"] * pt.cast(
             batch.keying, values["loading_magnitude"].dtype
         )
-        aligned = loading, values["intercept"], values["residual_variance"]
+        intercept, residual_variance = values["intercept"], values["residual_variance"]
         mean, covariance = wrap_jax(cls._utility_moments, allow_eval=False)(
-            ability[..., None], loading[..., None], aligned[1], aligned[2]
+            ability[..., None], loading[..., None], intercept, residual_variance
         )
         distribution = cls._create(
             mean,
@@ -103,7 +103,7 @@ class TIRTRankDistribution(pm.Distribution):
         )
         return ResponseBinding(
             batch=batch,
-            parameters=aligned,
+            parameters=(loading, intercept, residual_variance),
             kernel=partial(
                 cls.kernel, contrasts=batch.events.contrasts, membership=batch.events.membership
             ),
@@ -276,6 +276,7 @@ class TIRTRankDistribution(pm.Distribution):
         return jnp.where(use_complement, jnp.log1p(-jnp.exp(tail)), events)
 
     @staticmethod
+    @partial(jit, static_argnames=("sample_shape",))
     def _random(key, mean, covariance, orders, membership=None, *, sample_shape=()):
         """Draw utilities, sort them and encode their event without evaluating any CDF."""
         mean, covariance, orders = jnp.asarray(mean), jnp.asarray(covariance), jnp.asarray(orders)

@@ -1,6 +1,5 @@
 """One BlackJAX task runner and native result conversion; publication stays with callers."""
 
-from collections.abc import Mapping
 from functools import partial
 from numbers import Integral, Real
 from secrets import randbits
@@ -37,10 +36,6 @@ def sample_task(
     ``extra_step`` returns scalar statistics per retained iteration. FC callers
     attach their existing metadata through the common publication boundary.
     """
-    from arviz_base import from_dict
-    from pymc.backends.arviz import coords_and_dims_for_inferencedata, find_observations
-    from pymc.sampling.jax import _postprocess_samples
-
     for name, value in (
         ("draws", draws),
         ("tune", tune),
@@ -82,24 +77,15 @@ def sample_task(
     )
     if not selected or len(set(selected)) != len(selected) or set(selected) - available:
         raise ValueError("Storage selection must contain distinct available native output names")
+    draws, tune, chains, max_treedepth = map(int, (draws, tune, chains, max_treedepth))
+    target_accept, initial_step_size = float(target_accept), float(initial_step_size)
     seeds = np.random.SeedSequence(randbits(128) if random_seed is None else int(random_seed))
     key = jax.random.wrap_key_data(jnp.asarray(seeds.generate_state(2, dtype=np.uint32)))
     warm_key, draw_key = jax.random.split(key)
-    if initvals is None or isinstance(initvals, Mapping):
-        starts = [initvals] * chains
-    else:
-        starts = list(initvals)
-        if len(starts) != chains:
-            raise ValueError("initvals must contain one native initial-value mapping per chain")
     start = perf_counter()
-    initial = [
-        graph.initial_state(
-            random_seed=int(seed.generate_state(1, dtype=np.uint32)[0]),
-            initvals=values,
-        )
-        for seed, values in zip(seeds.spawn(chains), starts, strict=True)
-    ]
-    states = jax.tree.map(lambda *values: jnp.stack(values), *initial)
+    chain_seeds = [int(seed.generate_state(1, dtype=np.uint32)[0]) for seed in seeds.spawn(chains)]
+    positions = graph.initial_positions(chain_seeds, initvals=initvals)
+    positions = jax.tree.map(lambda *values: jnp.stack(values), *positions)
     initialization = perf_counter() - start
     parallel = jax.default_backend() == "cpu" and jax.local_device_count() >= chains
     mapper = jax.pmap if parallel else jax.vmap
@@ -108,20 +94,20 @@ def sample_task(
             partial(
                 warmup,
                 logdensity=graph.logdensity,
-                tune=int(tune),
-                target_accept=float(target_accept),
-                initial_step_size=float(initial_step_size),
+                tune=tune,
+                target_accept=target_accept,
+                initial_step_size=initial_step_size,
                 dense_mass=dense_mass,
-                max_num_doublings=int(max_treedepth),
+                max_num_doublings=max_treedepth,
             )
         )
     )
     warm_keys, draw_keys = jax.random.split(warm_key, chains), jax.random.split(draw_key, chains)
     start = perf_counter()
-    adapted = adapt.lower(warm_keys, states).compile()
+    adapted = adapt.lower(warm_keys, positions).compile()
     compile_seconds = perf_counter() - start
     start = perf_counter()
-    states, tuning = adapted(warm_keys, states)
+    states, tuning = adapted(warm_keys, positions)
     jax.block_until_ready((states, tuning))
     warmup_seconds = perf_counter() - start
 
@@ -130,10 +116,10 @@ def sample_task(
             key,
             state,
             logdensity=graph.logdensity,
-            draws=int(draws),
+            draws=draws,
             step_size=step_size,
             inverse_mass_matrix=inverse_mass_matrix,
-            max_num_doublings=int(max_treedepth),
+            max_num_doublings=max_treedepth,
             extra_step=extra_step,
         )
 
@@ -152,6 +138,38 @@ def sample_task(
     sampling_seconds = perf_counter() - start
     start = perf_counter()
 
+    result = _native_result(
+        graph,
+        samples.position,
+        info.nuts,
+        selected,
+        extra_statistics=info.extra if extra_step is not None else {},
+    )
+    return result, dict(
+        draws=draws,
+        tune=tune,
+        chains=chains,
+        target_accept=target_accept,
+        max_treedepth=max_treedepth,
+        dense_mass=dense_mass,
+        initialization_seconds=initialization,
+        compile_seconds=compile_seconds,
+        warmup_seconds=warmup_seconds,
+        sampling_seconds=sampling_seconds,
+        postprocessing_seconds=perf_counter() - start,
+        random_seed=int(seeds.entropy),
+        tuned_step_sizes=np.asarray(tuning["step_size"]).tolist(),
+        chain_method="parallel" if parallel else "vectorized",
+        actual_platform=jax.default_backend(),
+    )
+
+
+def _native_result(graph, positions, nuts, selected, *, extra_statistics):
+    """Convert retained positions and sampler diagnostics with native PyMC and ArviZ."""
+    from arviz_base import from_dict
+    from pymc.backends.arviz import find_observations
+    from pymc.sampling.jax import _postprocess_samples
+
     def transform(*values):
         logp, *outputs = graph.evaluate(*values)
         named = dict(zip(graph.output_names, outputs, strict=True))
@@ -159,23 +177,21 @@ def sample_task(
 
     values = _postprocess_samples(
         transform,
-        [samples.position[name] for name in graph.value_names],
+        [positions[name] for name in graph.value_names],
         postprocessing_vectorize="scan",
         donate_samples=False,
     )
     statistics = dict(
         lp=values[0],
-        diverging=info.nuts.is_divergent,
-        nuts_energy=info.nuts.energy,
-        tree_depth=info.nuts.num_trajectory_expansions,
-        n_steps=info.nuts.num_integration_steps,
-        acceptance_rate=info.nuts.acceptance_rate,
+        diverging=nuts.is_divergent,
+        nuts_energy=nuts.energy,
+        tree_depth=nuts.num_trajectory_expansions,
+        n_steps=nuts.num_integration_steps,
+        acceptance_rate=nuts.acceptance_rate,
     )
-    if extra_step is not None:
-        if set(statistics).intersection(info.extra):
-            raise ValueError("Extra transition statistics conflict with native sampler names")
-        statistics.update(info.extra)
-    _, dims = coords_and_dims_for_inferencedata(graph.model)
+    if set(statistics).intersection(extra_statistics):
+        raise ValueError("Extra transition statistics conflict with native sampler names")
+    statistics.update(extra_statistics)
     # Native tuples can contain e.g. integer 1 and string "1". A native Index
     # preserves those identities where NumPy's default tuple conversion does not.
     coords = {
@@ -190,18 +206,8 @@ def sample_task(
             observed_data=find_observations(graph.model),
         ),
         coords=coords,
-        dims=dims,
+        dims=dict(graph.model.named_vars_to_dims),
         sample_dims=["chain", "draw"],
     )
     result["sample_stats"].attrs["energy_scope"] = "NUTS substep only; not full-chain BFMI"
-    return result, dict(
-        initialization_seconds=initialization,
-        compile_seconds=compile_seconds,
-        warmup_seconds=warmup_seconds,
-        sampling_seconds=sampling_seconds,
-        postprocessing_seconds=perf_counter() - start,
-        random_seed=int(seeds.entropy),
-        tuned_step_sizes=np.asarray(tuning["step_size"]).tolist(),
-        chain_method="parallel" if parallel else "vectorized",
-        actual_platform=jax.default_backend(),
-    )
+    return result

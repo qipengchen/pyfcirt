@@ -39,6 +39,8 @@ from pyfcirt.data.coordinates import (
 )
 from pyfcirt.data.design import FCInput, ItemInput, ResponseTable
 from pyfcirt.data.encoding import (
+    OBSERVED_STATUSES,
+    UNIT_COLUMNS,
     NormalizedChannel,
     _model_declaration,
     encode_batches,
@@ -54,7 +56,7 @@ from pyfcirt.data.encoding import (
     warn_unobserved_statements,
 )
 from pyfcirt.data.grouping import theta_target_indices
-from pyfcirt.data.regressions import prepare_regressions
+from pyfcirt.data.regressions import _bind_regressions, _resolve_regressions
 from pyfcirt.models.population import PopulationFactory
 from pyfcirt.models.priors import PriorPreparation
 from pyfcirt.models.specification import PopulationSpec
@@ -186,6 +188,7 @@ class PreparedInputs:
             raise TypeError("population must be a PopulationSpec")
         declarations = None
         population_data = person_data
+        person_id = "person_id"
         if regressions is not None:
             declarations, qualified_priors = regression_declarations(
                 regressions,
@@ -206,28 +209,40 @@ class PreparedInputs:
                 population_data = person_data.rename(columns={person_id: "person_id"})
         with PriorPreparation():
             channels = tuple(normalize_channel(source, purpose=purpose) for source in sources)
-            layout = prepare_layout(
+            layout, person_alignment = prepare_layout(
                 channels,
                 population=PopulationSpec() if population is None else population,
                 person_data=population_data,
                 theta_parameterization=theta_parameterization,
                 centered_traits=centered_traits,
             )
-            constant = freeze_layout(layout).build()
-            constant.attrs.update(regression_scopes=[], marginal_correlation=False)
-            if not declarations:
-                constant = finalize_parameters(constant)
-            groups = {"/constant_data": constant}
-            if declarations or fixed_parameters is not None:
-                layout = cls(xr.DataTree.from_dict(groups))
-                if declarations:
-                    layout = prepare_regressions(
-                        layout, declarations, qualified_priors=qualified_priors
-                    )
-                    constant = layout.constant_data
-                    groups = layout.data.to_dict()
-                if fixed_parameters is not None:
-                    groups["/fixed_parameters"] = _calibration_values(layout, fixed_parameters)
+            layout = freeze_layout(layout)
+            layout.attrs.update(regression_scopes=[], marginal_correlation=False)
+            groups = {}
+            constant = layout
+            if declarations:
+                constant = layout.build()
+                active, replaced = _resolve_regressions(constant, declarations)
+                theta = next((spec for target, spec, _, _ in active if target == "theta"), None)
+                # Renaming an ID for population grouping preserves source row positions.
+                same_person_table = (
+                    theta is not None
+                    and theta.data is person_data
+                    and theta.id in (person_id, (person_id,))
+                )
+                constant, _ = _bind_regressions(
+                    constant,
+                    groups,
+                    active,
+                    replaced,
+                    qualified_priors=qualified_priors,
+                    theta_alignment=person_alignment if same_person_table else None,
+                )
+            constant = groups["/constant_data"] = finalize_parameters(constant)
+            if fixed_parameters is not None:
+                # Validate external values against the completed parameter catalogue.
+                design = cls(xr.DataTree.from_dict(groups))
+                groups["/fixed_parameters"] = _calibration_values(design, fixed_parameters)
             rows = index_response_rows(constant.person.values, _channel_units(constant), channels)
             prepared = cls._from_rows(groups, rows, purpose=purpose)
             if purpose == "observed" and fixed_parameters is None:
@@ -255,8 +270,12 @@ class PreparedInputs:
 
     def _design_groups(self):
         """Borrow the frozen design and fitted covariate encodings for a new response set."""
+        constant = self.constant_data
+        attrs = dict(constant.attrs, batches=[])
+        design = constant.drop_vars(attrs.pop("observation_variables"))
+        design.attrs = attrs
         return {
-            "/constant_data": _without_observations(self.constant_data),
+            "/constant_data": design,
             **{
                 f"/{record['path']}": self.data[record["path"]].dataset
                 for record in self.constant_data.attrs["regression_scopes"]
@@ -352,9 +371,6 @@ class PreparedInputs:
             result.append(ParameterBlock(**values))
         return tuple(result)
 
-    def _blocks(self, scope):
-        return self._blocks_by_scope[scope["name"]]
-
     @cached_property
     def parameters(self) -> tuple[ParameterLayout, ...]:
         """Final parameter layouts in preparation order."""
@@ -385,7 +401,8 @@ class PreparedInputs:
                     variables, coords={dim: self.constant_data[dim] for dim in dims}
                 )
             fixed = self._array(f"{kind}_fixed_value")
-            free, bound = np.flatnonzero(np.isnan(fixed)), np.flatnonzero(~np.isnan(fixed))
+            free_mask = np.isnan(fixed)
+            free, bound = np.flatnonzero(free_mask), np.flatnonzero(~free_mask)
             free.flags.writeable = bound.flags.writeable = False
             result[kind] = ParameterLayout(
                 kind=kind,
@@ -914,7 +931,11 @@ class PreparedInputs:
         plans = []
         for scope in self.constant_data.attrs["regression_scopes"]:
             theta = scope["target"] == "theta"
-            blocks = (bindings[scope["blocks"][0]["binding_id"]],) if theta else self._blocks(scope)
+            blocks = (
+                (bindings[scope["blocks"][0]["binding_id"]],)
+                if theta
+                else self._blocks_by_scope[scope["name"]]
+            )
             positions = self._array(scope["coefficient_positions"])
             coefficient = blocks[0]
             entries = coefficient.entry_index.ravel()[positions]
@@ -963,7 +984,7 @@ class PreparedInputs:
         regression = self.theta_regression
         return PopulationLayout(
             specification=scope["specification"],
-            blocks=self._blocks(scope),
+            blocks=self._blocks_by_scope[scope["name"]],
             recipe=scope["recipe"],
             theta_parameterization=scope["theta_parameterization"],
             person_group=self._array("person_group"),
@@ -980,8 +1001,10 @@ def _align_point_axes(constant, point, shapes, *, sample_dims=(), exact=False):
     axes, reorder = {}, {}
     for name, dims in shapes.items():
         actual, expected = point[name].dims, (*sample_dims, *dims)
-        if actual != expected and (exact or len(actual) != len(dims) or set(actual) != set(dims)):
-            raise ValueError(f"{name}: expected final dimensions {expected}, received {actual}")
+        if actual != expected:
+            can_transpose = not exact and len(actual) == len(dims) and set(actual) == set(dims)
+            if not can_transpose:
+                raise ValueError(f"{name}: expected final dimensions {expected}, received {actual}")
         axes.update(dict.fromkeys(dims, name))
     for dim, name in axes.items():
         actual, expected = point.get_index(dim), constant.get_index(dim)
@@ -1178,7 +1201,12 @@ def _new_channels(reference, responses, administration):
         administration = {name: rows.loc[channels == name] for name in names}
     else:
         administration = {
-            name: normalize_administration(rows, units[name], fc=name == "fc", purpose="observed")
+            name: normalize_administration(
+                rows,
+                units[name],
+                unit_column=UNIT_COLUMNS[name],
+                allowed_statuses=OBSERVED_STATUSES,
+            )
             for name, rows in _labelled_administration(administration, names).items()
         }
         people = ()
@@ -1194,7 +1222,7 @@ def _new_channels(reference, responses, administration):
         rows, admin, channel_people = normalize_responses(
             source,
             units[name],
-            fc=fc,
+            unit_column=UNIT_COLUMNS[name],
             purpose="observed",
             order=order,
             administration=administration.get(name),
@@ -1267,29 +1295,21 @@ def _population_inputs(reference: PreparedInputs, people, *, person_data=None, a
     return predictors, groups
 
 
-def _without_observations(constant):
-    """Keep prepared people/parameters while replacing one encoded response collection."""
-    attrs = dict(constant.attrs, batches=[])
-    result = constant.drop_vars(attrs.pop("observation_variables"))
-    result.attrs = attrs
-    return result
-
-
 def _replace_people(
     reference: PreparedInputs, people, *, person_data=None, administration=None
 ) -> dict[str, xr.Dataset]:
     """Bind a replacement person axis in the candidate design groups."""
     datasets = reference._design_groups()
-    population = _population_inputs(
+    population_inputs = _population_inputs(
         reference, people, person_data=person_data, administration=administration
     )
-    if population is None:
+    if population_inputs is None:
         return datasets
-    predictors, groups = population
+    predictors, person_groups = population_inputs
     constant = datasets["/constant_data"]
     resize = len(people) != constant.sizes["person"]
     drop = {"person"}
-    personal = []
+    person_blocks = []
     scopes = constant.attrs["measurements"] if resize else ()
     for scope_index, scope in enumerate(scopes):
         for index, layout in enumerate(scope["blocks"]):
@@ -1297,13 +1317,13 @@ def _replace_people(
                 bindings = [slot["binding_id"] for slot in scope["slots"]]
                 slot_index = bindings.index(layout["binding_id"])
                 positions = scope["slots"][slot_index]["positions"]
-                personal.append((scope_index, index, slot_index, layout))
+                person_blocks.append((scope_index, index, slot_index, layout))
                 for name in (layout["free_flat"], layout["fixed_flat"], positions):
                     drop.update(constant[name].dims)
     labels = np.asarray(people, dtype=object)
     result = (constant.drop_dims(drop) if resize else constant).assign_coords(person=labels)
     attrs = result.attrs
-    if personal:
+    if person_blocks:
         # Only measurement scopes own person-local blocks and their mutable gathers.
         attrs["measurements"] = deepcopy(attrs["measurements"])
     theta_regression = attrs["population"]["recipe"]["regression"]
@@ -1321,18 +1341,18 @@ def _replace_people(
         )
         target = scope["targets"][0]
         rows, pools = theta_target_indices(
-            groups,
+            person_groups,
             result.sizes["trait"],
             by_group=attrs["population"]["recipe"]["regression_by_group"],
         )
         name = target["indices"]
         result[name] = ("regression_target_field", "person", "trait"), np.stack((rows, pools))
-    result["person_group"] = "person", groups
-    if personal:
+    result["person_group"] = "person", person_groups
+    if person_blocks:
         arrays = LayoutBuilder(coords={}, attrs=attrs)
         arrays.update(result)
         with PriorPreparation():
-            for scope_index, index, slot_index, old in personal:
+            for scope_index, index, slot_index, old in person_blocks:
                 scope = attrs["measurements"][scope_index]
                 slot = scope["slots"][slot_index]
                 layout = _layout(
@@ -1353,7 +1373,7 @@ def _replace_people(
                 slot["binding_id"] = layout["binding_id"]
                 arrays[slot["positions"]] = "person", np.arange(len(people), dtype=np.int64)
         result = finalize_parameters(
-            arrays.build(), changed={block["kind"] for _, _, _, block in personal}
+            arrays.build(), changed={block["kind"] for _, _, _, block in person_blocks}
         )
     datasets["/constant_data"] = result
     return datasets
@@ -1397,7 +1417,9 @@ def _prepare_scoring(
     channels, people, omitted = _new_channels(reference, new_responses, administration)
     if excluded_people and any(_person_key(label) in excluded_people for label in people):
         raise ValueError("Posterior scoring requires respondents absent from prior evidence")
-    if fixed_parameters is not None:
+    if fixed_parameters is not None and (
+        partial or fixed_parameters is not reference.fixed_parameters
+    ):
         fixed_parameters = _calibration_values(reference, fixed_parameters, partial=partial)
     groups = _replace_people(
         reference, people, person_data=person_data, administration=administration
@@ -1480,7 +1502,7 @@ def _prepare_automatic_generation(
     if not 2 <= block_size <= n_traits <= n_blocks * block_size:
         raise ValueError("Require 2 <= block_size <= n_traits <= n_blocks * block_size")
 
-    spec = _model_declaration("MGPPM" if specification is None else specification, fc=True)
+    spec = _model_declaration("MGPPM" if specification is None else specification, channel="fc")
     rng = np.random.default_rng(seed)
     usage = np.zeros(n_traits, dtype=np.int64)
     members = np.empty((n_blocks, block_size), dtype=np.int64)

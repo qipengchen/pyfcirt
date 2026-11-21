@@ -133,15 +133,18 @@ def score_model(
             raise ValueError("parameters cannot be supplied with posterior calibration")
         if approximation is None:
             approximation = reference.posterior_approximation()
-        if not isinstance(approximation, PosteriorApproximation):
-            raise TypeError("Posterior scoring requires a runtime PosteriorApproximation")
-        if approximation.design_identity != reference.prepared.calibration_identity:
-            raise ValueError("Approximation belongs to a different calibration design")
-        if approximation.coordinate_identity != ModelGraph.calibration_coordinates(
-            reference.prepared
-        ):
-            raise ValueError("Approximation requires matching native calibration coordinates")
-        excluded_people = reference._scoring_exclusions(approximation)
+            # The fit already used this design, native coordinates and committed evidence.
+            excluded_people = approximation.evidence_people
+        else:
+            if not isinstance(approximation, PosteriorApproximation):
+                raise TypeError("Posterior scoring requires a runtime PosteriorApproximation")
+            if approximation.design_identity != reference.prepared.calibration_identity:
+                raise ValueError("Approximation belongs to a different calibration design")
+            if approximation.coordinate_identity != ModelGraph.calibration_coordinates(
+                reference.prepared
+            ):
+                raise ValueError("Approximation requires matching native calibration coordinates")
+            excluded_people = reference._scoring_exclusions(approximation)
         fixed = approximation.fixed_parameters
         attrs = {"calibration_uncertainty": POSTERIOR_CALIBRATION}
     else:

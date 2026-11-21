@@ -222,13 +222,21 @@ def test_native_override_and_label_alignment(default):
         fc.PosteriorApproximation.from_idata(
             idata, model=model, var_names=["scale"], transforms={"scale": None}
         )
+    calls = []
+
+    class TrackedLogTransform(LogTransform):
+        def forward(self, value, *inputs):
+            calls.append(value)
+            return super().forward(value, *inputs)
+
     approximation = fc.PosteriorApproximation.from_idata(
         idata,
         model=model,
         var_names=["scale"],
         method="mean_field",
-        transforms={"scale": LogTransform()},
+        transforms={"scale": TrackedLogTransform()},
     )
+    assert len(calls) == 1
     assert approximation.diagnostics["kinds"]["scale"]["family"] == "mean_field"
     automatic = fc.PosteriorApproximation.from_idata(
         idata, model=model, var_names=["scale"], method="mean_field"
@@ -356,7 +364,20 @@ def test_default_posterior_scoring_updates_jointly_and_reuses_subset(monkeypatch
     assert sum(map(len, prior.groups.values())) == 3
     assert not prior.fixed_parameters.data_vars
 
-    scored = calibration.score(response(2), calibration="posterior")
+    from pyfcirt.models.assembly import ModelGraph
+
+    coordinates = ModelGraph.calibration_coordinates
+    coordinate_checks = []
+
+    def count_coordinates(prepared):
+        coordinate_checks.append(prepared)
+        return coordinates(prepared)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(ModelGraph, "calibration_coordinates", staticmethod(count_coordinates))
+        scored = calibration.score_model(response(2), calibration="posterior")
+        assert len(coordinate_checks) == 1
+    scored.fit()
     assert scored.build().coords["person"] == (2,)
     continued = scored.posterior_approximation()
     assert continued.groups == {"joint": prior.var_names}

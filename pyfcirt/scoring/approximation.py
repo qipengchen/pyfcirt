@@ -22,21 +22,38 @@ from scipy.special import ndtr
 from pyfcirt.analysis.output import posterior_samples
 
 
-def _unconstrained_draws(free, paired, transforms):
-    """Evaluate PyMC's native transforms on positional arrays with sample axes."""
-    if not any(transform is not None for transform in transforms.values()):
-        return {name: paired[name].values for name in transforms}
+def _paired_draws(model, posterior, names, inputs_only, shapes):
+    """Read fitted RVs and their transform inputs in the model's native axis order."""
+    selected = set(names)
+    paired = {}
+    for name in (*names, *inputs_only):
+        if name not in posterior:
+            purpose = "native RV" if name in selected else "transform input"
+            raise ValueError(f"Missing posterior draws for {purpose} {name!r}")
+        values = posterior[name].transpose("chain", "draw", ...)
+        axes = model.named_vars_to_dims.get(name, ())
+        named = {dim for dim in axes if dim is not None}
+        for dim in named:
+            if dim not in values.dims or (
+                model.coords[dim] is not None
+                and tuple(values[dim].values) != tuple(model.coords[dim])
+            ):
+                raise ValueError(f"{name}: posterior labels differ on {dim!r}")
+        unnamed = iter(dim for dim in values.dims[2:] if dim not in named)
+        dims = tuple(next(unnamed, None) if dim is None else dim for dim in axes) + tuple(unnamed)
+        if None in dims or tuple(values.sizes[dim] for dim in dims) != shapes[name]:
+            raise ValueError(f"{name}: posterior shape differs from the native RV")
+        paired[name] = values.transpose("chain", "draw", *dims)
+    return paired
 
-    inputs = {name: free[name].type() for name in paired}
-    outputs = [
-        inputs[name]
-        if transform is None
-        else transform.forward(inputs[name], *free[name].owner.inputs)
-        for name, transform in transforms.items()
-    ]
+
+def _unconstrained_draws(free, paired, inputs, expressions):
+    """Evaluate PyMC's native transforms on positional arrays with sample axes."""
     # A dependent bound uses the matching natural-scale draw of its parent RV.
     outputs = graph_replace(
-        outputs, {free[name]: value for name, value in inputs.items()}, strict=False
+        list(expressions.values()),
+        {free[name]: value for name, value in inputs.items()},
+        strict=False,
     )
     batch = {
         value: pt.tensor(dtype=value.dtype, shape=(None, None, *value.type.shape))
@@ -45,9 +62,7 @@ def _unconstrained_draws(free, paired, transforms):
     evaluate = pm.compile(
         list(batch.values()), vectorize_graph(outputs, batch), mode="FAST_COMPILE"
     )
-    return dict(
-        zip(transforms, evaluate(*(value.values for value in paired.values())), strict=True)
-    )
+    return dict(zip(expressions, evaluate(*(paired[name].values for name in inputs)), strict=True))
 
 
 def _options(method, components, random_seed):
@@ -335,7 +350,8 @@ class PosteriorApproximation:
         if overrides.keys() - selected:
             raise ValueError("Transform overrides must select fitted native RVs")
         native_free = set(free.values())
-        resolved, transform_inputs = {}, set()
+        resolved, expressions, transform_inputs = {}, {}, set()
+        inputs = {name: free[name].type() for name in names}
         for name in names:
             rv = free[name]
             native = model.rvs_to_transforms[rv]
@@ -344,36 +360,19 @@ class PosteriorApproximation:
             transform = resolved[name] = overrides.get(name, native)
             if transform is None and native is not None:
                 raise ValueError(f"{name}: a constrained native RV cannot disable its transform")
-            if transform is not None:
-                transform_inputs.update(
-                    ancestors(
-                        [transform.forward(rv.type(), *rv.owner.inputs)], blockers=native_free
-                    )
-                )
+            if transform is None:
+                expressions[name] = inputs[name]
+            else:
+                expression = expressions[name] = transform.forward(inputs[name], *rv.owner.inputs)
+                transform_inputs.update(ancestors([expression], blockers=native_free))
         inputs_only = sorted({rv.name for rv in native_free & transform_inputs} - selected)
         shapes = model.eval_rv_shapes()
-        paired = {}
-        for name in (*names, *inputs_only):
-            if name not in posterior:
-                purpose = "native RV" if name in selected else "transform input"
-                raise ValueError(f"Missing posterior draws for {purpose} {name!r}")
-            values = posterior[name].transpose("chain", "draw", ...)
-            axes = model.named_vars_to_dims.get(name, ())
-            named = {dim for dim in axes if dim is not None}
-            for dim in named:
-                if dim not in values.dims or (
-                    model.coords[dim] is not None
-                    and tuple(values[dim].values) != tuple(model.coords[dim])
-                ):
-                    raise ValueError(f"{name}: posterior labels differ on {dim!r}")
-            unnamed = iter(dim for dim in values.dims[2:] if dim not in named)
-            dims = tuple(next(unnamed, None) if dim is None else dim for dim in axes) + tuple(
-                unnamed
-            )
-            if None in dims or tuple(values.sizes[dim] for dim in dims) != shapes[name]:
-                raise ValueError(f"{name}: posterior shape differs from the native RV")
-            paired[name] = values.transpose("chain", "draw", *dims)
-        coordinates = _unconstrained_draws(free, paired, resolved)
+        paired = _paired_draws(model, posterior, names, inputs_only, shapes)
+        if any(transform is not None for transform in resolved.values()):
+            inputs.update((name, free[name].type()) for name in inputs_only)
+            coordinates = _unconstrained_draws(free, paired, inputs, expressions)
+        else:
+            coordinates = {name: paired[name].values for name in names}
         densities, diagnostics = {}, {}
         shape = posterior.sizes["chain"], posterior.sizes["draw"]
         for kind, group in groups.items():
@@ -405,18 +404,19 @@ class PosteriorApproximation:
     def _apply(self, model, fixed):
         candidate = clone_model(model)
         free = {rv.name: rv for rv in candidate.free_RVs}
-        if missing := set(self.var_names) - free.keys():
+        names = self.var_names
+        if missing := set(names) - free.keys():
             raise ValueError(
                 f"Destination lacks selected native calibration RVs: {sorted(missing)}"
             )
         fixed = {candidate[name]: value for name, value in fixed.items()}
-        if fixed and (overlap := set(ancestors(fixed)) & {free[name] for name in self.var_names}):
+        if fixed and (overlap := set(ancestors(fixed)) & {free[name] for name in names}):
             raise ValueError(
                 "Fixed parameters depend on selected native RVs: "
                 f"{sorted(rv.name for rv in overlap)}"
             )
         shapes = candidate.eval_rv_shapes()
-        for name in self.var_names:
+        for name in names:
             if shapes[name] != self.shapes[name][0]:
                 raise ValueError(f"{name}: destination native shape differs from calibration")
         draws = {}

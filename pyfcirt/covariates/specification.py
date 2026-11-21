@@ -129,8 +129,8 @@ def _formula_columns(formula):
     return tuple(dict.fromkeys(names))
 
 
-def validate_formula(formula):
-    """Check each declaration before deciding which role declarations survive."""
+def validate_formula(formula: str) -> tuple[str, ...]:
+    """Check syntax before resolving targets and return the required feature columns."""
     try:
         from formulae.parser import ParseError, Parser
         from formulae.scanner import ScanError, Scanner
@@ -139,7 +139,7 @@ def validate_formula(formula):
             raise
         raise ImportError("Regression formulas require pyfcirt[covariates]") from error
 
-    _formula_columns(formula)
+    features = _formula_columns(formula)
     try:
         parser = Parser(Scanner(formula).scan())
         parser.parse()
@@ -147,6 +147,7 @@ def validate_formula(formula):
         raise ValueError(f"Invalid regression formula syntax: {formula!r}") from error
     if not parser.at_end():
         raise ValueError(f"Invalid regression formula syntax: {formula!r}")
+    return features
 
 
 def regression_declarations(

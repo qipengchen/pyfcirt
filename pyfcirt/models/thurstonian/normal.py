@@ -7,7 +7,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytensor.tensor as pt
 from jax import lax, vmap
-from jax.nn import log_sigmoid, softplus
+from jax.nn import log_sigmoid
 from jax.scipy.special import log_ndtr, ndtri_exp
 from scipy.stats import qmc
 
@@ -94,12 +94,12 @@ def beta_shapes(eta, precision, *, link):
     """Compute complementary Beta shapes, exposing underflow rather than clipping it."""
     eta, precision = jnp.asarray(eta), jnp.asarray(precision)
     if link == "probit":
-        log_mean, log_complement = log_ndtr(eta), log_ndtr(-eta)
+        logcdf = log_ndtr
     elif link == "logit":
-        log_mean, log_complement = -softplus(-eta), -softplus(eta)
+        logcdf = log_sigmoid
     else:
         raise ValueError("Beta comparison link must be 'probit' or unscaled 'logit'")
-    return precision * jnp.exp(log_mean), precision * jnp.exp(log_complement)
+    return precision * jnp.exp(logcdf(eta)), precision * jnp.exp(logcdf(-eta))
 
 
 def sobol_rule(dimension, *, n_points, seed):

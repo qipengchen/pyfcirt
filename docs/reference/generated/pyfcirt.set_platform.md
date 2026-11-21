@@ -9,8 +9,8 @@ Choose a computation device and floating-point precision.
 ## Parameters
 
 `platform` : str or None
-: `"cpu"`, `"gpu"` or `None` to preserve JAX's device selection.
-  Explicit selections check that the device is available.
+: `"cpu"`, `"gpu"`, or a native JAX backend name such as `"cuda"`.
+  Explicit selections check device availability. `None` preserves JAX's selection.
 
 `precision` : {"float32", "float64"}
 : Numeric precision for JAX and PyTensor. Default: `"float64"`.
@@ -18,12 +18,12 @@ Choose a computation device and floating-point precision.
 ## Returns
 
 None
-: Configures the process. Failed device selection restores the previous settings.
+: Configures the process. A failed update restores the previous settings.
 
 ## Notes
 
 Call before preparing data or building graphs. Use a fresh Python session
-when changing platforms. The CPU remains available for covariate encoding.
+when changing platforms. The CPU backend remains available when using an accelerator.
 
 ## Examples
 

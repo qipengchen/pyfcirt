@@ -150,14 +150,14 @@ def test_native_person_factors_equal_the_actual_full_task_up_to_global_prior_con
 
     model = gtum_model(block_effect=True)
     graph = _conditional_task(model._bindings)
-    initial = graph.initial_state(random_seed=5)
-    theta = initial.position["theta"]
+    (initial,) = graph.initial_positions([5])
+    theta = initial["theta"]
 
     def person(value):
-        return graph.outputs({**initial.position, "theta": value})["__mode_person_logp"]
+        return graph.outputs({**initial, "theta": value})["__mode_person_logp"]
 
     def full(value):
-        return graph.logdensity({**initial.position, "theta": value})
+        return graph.logdensity({**initial, "theta": value})
 
     changed = theta.at[0, 0].add(0.4)
     difference = person(changed) - person(theta)
@@ -174,16 +174,16 @@ def test_gtum_proposal_context_ignores_old_trait_and_preserves_other_parameters(
 
     model = gtum_model()
     graph = gtum._conditional_task(model._bindings)
-    state = graph.initial_state(random_seed=6)
-    initial = {name: np.array(value) for name, value in state.position.items()}
+    (position,) = graph.initial_positions([6])
+    initial = {name: np.array(value) for name, value in position.items()}
     move = gtum._mode_update(graph, model._bindings)
     import jax
 
-    updated, stats = jax.jit(move)(jax.random.key(7), state.position)
+    updated, stats = jax.jit(move)(jax.random.key(7), position)
     assert updated["theta"].shape == initial["theta"].shape
     assert 0 <= stats["imh_acceptance"] <= 1
     for name in initial:
-        assert_allclose(state.position[name], initial[name])
+        assert_allclose(position[name], initial[name])
         if name != "theta":
             assert_allclose(updated[name], initial[name])
     from pyfcirt.inference.conditional_mode import ModeInfo
@@ -199,8 +199,8 @@ def test_gtum_proposal_context_ignores_old_trait_and_preserves_other_parameters(
 
     monkeypatch.setattr("pyfcirt.inference.conditional_mode.independence_step", proposed_only)
     independent = gtum._mode_update(graph, model._bindings)
-    low = {**state.position, "theta": state.position["theta"].at[:, 0].set(-100.0)}
-    high = {**state.position, "theta": state.position["theta"].at[:, 0].set(100.0)}
+    low = {**position, "theta": position["theta"].at[:, 0].set(-100.0)}
+    high = {**position, "theta": position["theta"].at[:, 0].set(100.0)}
     left, _ = jax.jit(independent)(jax.random.key(8), low)
     right, _ = jax.jit(independent)(jax.random.key(8), high)
     assert_allclose(left["theta"], right["theta"], atol=0)
