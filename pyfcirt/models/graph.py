@@ -379,7 +379,8 @@ def response_rv(
         response_kernel = kernel
     output = wrap_jax(response_kernel, allow_eval=False)(*arguments, **options)
     if beta:
-        alpha, beta_shape = (check_parameters(value, *checks, msg=message) for value in output)
+        alpha, beta_shape = output
+        alpha = check_parameters(alpha, *checks, msg=message)
         distribution = pm.Beta.dist(alpha=alpha, beta=beta_shape, size=size)
     else:
         logs = check_parameters(output, *checks, msg=message) if checks else output

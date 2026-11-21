@@ -12,9 +12,8 @@ import pyfcirt as fc
 def generated_pair_frame(prepared, values):
     """Read decoded values and verify their published comparison provenance."""
     from pyfcirt.data.encoding import encode_batches, generated_rows
-    from pyfcirt.data.prepare import _without_observations
 
-    design = _without_observations(prepared.constant_data)
+    design = prepared._design_groups()["/constant_data"]
     admin, responses = generated_rows(prepared, values)
     _, observed = encode_batches(design, admin, responses, purpose="observed")
     for row in responses.index[responses.native_response.to_numpy(dtype=bool)]:

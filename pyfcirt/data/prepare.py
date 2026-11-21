@@ -56,7 +56,7 @@ from pyfcirt.data.encoding import (
     warn_unobserved_statements,
 )
 from pyfcirt.data.grouping import theta_target_indices
-from pyfcirt.data.regressions import prepare_regressions
+from pyfcirt.data.regressions import _bind_regressions, _resolve_regressions
 from pyfcirt.models.population import PopulationFactory
 from pyfcirt.models.priors import PriorPreparation
 from pyfcirt.models.specification import PopulationSpec
@@ -216,34 +216,33 @@ class PreparedInputs:
                 theta_parameterization=theta_parameterization,
                 centered_traits=centered_traits,
             )
-            constant = freeze_layout(layout).build()
-            constant.attrs.update(regression_scopes=[], marginal_correlation=False)
-            if not declarations:
-                constant = finalize_parameters(constant)
-            groups = {"/constant_data": constant}
-            if declarations or fixed_parameters is not None:
+            layout = freeze_layout(layout)
+            layout.attrs.update(regression_scopes=[], marginal_correlation=False)
+            groups = {}
+            constant = layout
+            if declarations:
+                constant = layout.build()
+                active, replaced = _resolve_regressions(constant, declarations)
+                theta = next((spec for target, spec, _, _ in active if target == "theta"), None)
+                # Renaming an ID for population grouping preserves source row positions.
+                same_person_table = (
+                    theta is not None
+                    and theta.data is person_data
+                    and theta.id in (person_id, (person_id,))
+                )
+                constant, _ = _bind_regressions(
+                    constant,
+                    groups,
+                    active,
+                    replaced,
+                    qualified_priors=qualified_priors,
+                    theta_alignment=person_alignment if same_person_table else None,
+                )
+            constant = groups["/constant_data"] = finalize_parameters(constant)
+            if fixed_parameters is not None:
+                # Validate external values against the completed parameter catalogue.
                 design = cls(xr.DataTree.from_dict(groups))
-                if declarations:
-                    theta = next(
-                        (spec for target, spec in reversed(declarations) if target == "theta"),
-                        None,
-                    )
-                    # Renaming an ID for population grouping preserves source row positions.
-                    same_person_table = (
-                        theta is not None
-                        and theta.data is person_data
-                        and theta.id in (person_id, (person_id,))
-                    )
-                    design = prepare_regressions(
-                        design,
-                        declarations,
-                        qualified_priors=qualified_priors,
-                        theta_alignment=person_alignment if same_person_table else None,
-                    )
-                    groups = design.data.to_dict()
-                if fixed_parameters is not None:
-                    groups["/fixed_parameters"] = _calibration_values(design, fixed_parameters)
-            constant = groups["/constant_data"]
+                groups["/fixed_parameters"] = _calibration_values(design, fixed_parameters)
             rows = index_response_rows(constant.person.values, _channel_units(constant), channels)
             prepared = cls._from_rows(groups, rows, purpose=purpose)
             if purpose == "observed" and fixed_parameters is None:
@@ -271,8 +270,12 @@ class PreparedInputs:
 
     def _design_groups(self):
         """Borrow the frozen design and fitted covariate encodings for a new response set."""
+        constant = self.constant_data
+        attrs = dict(constant.attrs, batches=[])
+        design = constant.drop_vars(attrs.pop("observation_variables"))
+        design.attrs = attrs
         return {
-            "/constant_data": _without_observations(self.constant_data),
+            "/constant_data": design,
             **{
                 f"/{record['path']}": self.data[record["path"]].dataset
                 for record in self.constant_data.attrs["regression_scopes"]
@@ -367,9 +370,6 @@ class PreparedInputs:
                 )
             result.append(ParameterBlock(**values))
         return tuple(result)
-
-    def _blocks(self, scope):
-        return self._blocks_by_scope[scope["name"]]
 
     @cached_property
     def parameters(self) -> tuple[ParameterLayout, ...]:
@@ -931,7 +931,11 @@ class PreparedInputs:
         plans = []
         for scope in self.constant_data.attrs["regression_scopes"]:
             theta = scope["target"] == "theta"
-            blocks = (bindings[scope["blocks"][0]["binding_id"]],) if theta else self._blocks(scope)
+            blocks = (
+                (bindings[scope["blocks"][0]["binding_id"]],)
+                if theta
+                else self._blocks_by_scope[scope["name"]]
+            )
             positions = self._array(scope["coefficient_positions"])
             coefficient = blocks[0]
             entries = coefficient.entry_index.ravel()[positions]
@@ -980,7 +984,7 @@ class PreparedInputs:
         regression = self.theta_regression
         return PopulationLayout(
             specification=scope["specification"],
-            blocks=self._blocks(scope),
+            blocks=self._blocks_by_scope[scope["name"]],
             recipe=scope["recipe"],
             theta_parameterization=scope["theta_parameterization"],
             person_group=self._array("person_group"),
@@ -1289,14 +1293,6 @@ def _population_inputs(reference: PreparedInputs, people, *, person_data=None, a
         else apply_design(design, person_data, positions, identities).values
     )
     return predictors, groups
-
-
-def _without_observations(constant):
-    """Keep prepared people/parameters while replacing one encoded response collection."""
-    attrs = dict(constant.attrs, batches=[])
-    result = constant.drop_vars(attrs.pop("observation_variables"))
-    result.attrs = attrs
-    return result
 
 
 def _replace_people(

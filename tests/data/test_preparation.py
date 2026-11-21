@@ -25,6 +25,17 @@ from tests.helpers import (
 )
 
 
+def test_first_preparation_publishes_parameters_from_the_original_builder(monkeypatch):
+    from pyfcirt.data.arrays import LayoutBuilder
+
+    def reject_reimport(self, dataset):
+        pytest.fail("First preparation should reuse its existing LayoutBuilder")
+
+    monkeypatch.setattr(LayoutBuilder, "update", reject_reimport)
+    prepared = fc.PreparedInputs.from_inputs(mixed_inputs())
+    assert prepared.parameter_layouts["loading"].entry_data.sizes["loading_id"] > 0
+
+
 def test_canonical_one_pl_has_one_loading_and_many_item_uses_without_inactive_q_entries():
     source = fc.ItemInput(
         fc.ItemDesignMapping(traits={"A": ["a", "b"], "B": ["c"]}),

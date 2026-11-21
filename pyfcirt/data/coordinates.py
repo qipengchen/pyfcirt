@@ -412,8 +412,8 @@ def _regression_entry_metadata(constant, regression_plans):
     return regression_entries
 
 
-def finalize_parameters(constant, *, changed=None):
-    """Publish affected kinds and update gathers for new person-local blocks."""
+def finalize_parameters(constant: LayoutBuilder | xr.Dataset, *, changed=None) -> xr.Dataset:
+    """Publish a fresh layout or replace affected kinds in an existing Dataset."""
     previous = {record["kind"]: record for record in constant.attrs.get("parameters", ())}
     update = changed is not None and bool(previous)
     scopes = _parameter_scopes(constant)
@@ -451,12 +451,11 @@ def finalize_parameters(constant, *, changed=None):
             kinds = constant.variables["parameter_use_kind"].values
             split = np.count_nonzero(~np.isin(kinds, tuple(REGRESSION_KINDS)))
             retained = slice(split, None) if measurement_uses else slice(split)
-    constant = constant.drop_dims(drop_dims)
-    # Entry arrays already share validated integer axes. Collect them without
-    # repeatedly aligning an expanding Dataset; materialize xarray once below.
-    arrays = LayoutBuilder(coords={}, attrs=constant.attrs)
-    arrays.update(constant)
-    constant = arrays
+    if isinstance(constant, xr.Dataset):
+        # Only published datasets can have old catalogue dimensions to replace.
+        arrays = LayoutBuilder(coords={}, attrs=constant.attrs)
+        arrays.update(constant.drop_dims(drop_dims) if drop_dims else constant)
+        constant = arrays
     records = dict(previous) if update else {}
     measurement_scopes = {
         scope["name"] for key in ("owners", "measurements") for scope in constant.attrs[key]
@@ -766,11 +765,12 @@ def _layout_fc_membership(ds, frame, units, block_index, statement_index, trait_
     ds["fc_statement"] = ("block", "position"), membership
     ds["fc_size"] = "block", sizes
     first = frame.drop_duplicates("statement_id")
-    for row in first.itertuples():
-        index = statement_index[("fc", row.statement_id)]
-        ds["statement_trait"].values[index] = trait_index[row.trait]
-        ds["statement_keying"].values[index] = row.keying
-    for column in ("location_side", "fix_loading", "fix_var"):
+    indices = [statement_index[("fc", label)] for label in first.statement_id]
+    ds["statement_trait"].values[indices] = first.trait.map(trait_index).to_numpy()
+    ds["statement_keying"].values[indices] = first.keying.to_numpy()
+    if "location_side" in first:
+        ds["statement_location_side"].values[indices] = first.location_side.to_numpy(dtype=float)
+    for column in ("fix_loading", "fix_var"):
         for label, value in _consistent_column(frame, "statement_id", column).items():
             ds[f"statement_{column}"].values[statement_index[("fc", label)]] = value
     return membership

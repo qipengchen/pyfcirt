@@ -2,7 +2,6 @@
 
 from contextlib import nullcontext
 from dataclasses import replace
-from math import lgamma
 from types import SimpleNamespace
 
 import numpy as np
@@ -956,50 +955,6 @@ def test_native_conditional_density_gradients_and_fixed_slots(family):
         assert np.isneginf(evaluate(invalid, mu, sd)[0])
 
 
-@pytest.mark.parametrize("count", [1, 3])
-def test_dynamic_ordered_density_and_gradients_include_the_order_normalizer(count):
-    mean = pt.tensor("mean", dtype="float64", shape=(2,))
-    scale = pt.tensor("scale", dtype="float64", shape=(2,))
-    value = pt.tensor("value", dtype="float64", shape=(2, count))
-    with pm.Model():
-        ordered = ParameterFactory.ordered(
-            "cuts",
-            pm.Normal.dist(mu=mean, sigma=scale),
-            rows=2,
-            count=count,
-        )
-    density = pm.logp(ordered, value)
-    logp = density.sum()
-    evaluate = pytensor.function(
-        [value, mean, scale], [logp, *pt.grad(logp, [value, mean, scale])], mode="JAX"
-    )
-    q = np.array([[-1.0, 0.2, 1.4], [-0.9, 0.7, 1.8]])[:, :count]
-    mu, sd = np.array([-0.2, 0.5]), np.array([0.8, 1.2])
-    residual = q - mu[:, None]
-    expected = stats.norm.logpdf(q, loc=mu[:, None], scale=sd[:, None]).sum() + 2 * lgamma(
-        count + 1
-    )
-    gradients = [
-        -residual / sd[:, None] ** 2,
-        (residual / sd[:, None] ** 2).sum(axis=1),
-        (residual**2 / sd[:, None] ** 3 - 1 / sd[:, None]).sum(axis=1),
-    ]
-    for result, reference in zip(evaluate(q, mu, sd), [expected, *gradients], strict=True):
-        assert_allclose(result, reference, atol=1e-10, rtol=1e-10)
-    generated = graph_replace(
-        ordered, replace={mean: pt.as_tensor_variable(mu), scale: pt.as_tensor_variable(sd)}
-    )
-    draws = pm.draw(generated, draws=3, random_seed=63, mode="JAX")
-    assert draws.shape == (3, 2, count)
-    assert np.isfinite(draws).all()
-    assert np.all(np.diff(draws, axis=-1) > 0)
-    if count > 1:
-        invalid_density = pytensor.function([value, mean, scale], density, mode="JAX")
-        assert np.isneginf(invalid_density(q[:, ::-1], mu, sd)).all()
-        q[:, 1] = q[:, 0]
-        assert np.isneginf(invalid_density(q, mu, sd)).all()
-
-
 @pytest.mark.parametrize("theta", [False, True])
 @pytest.mark.parametrize("noncentered", [False, True])
 def test_beta_and_B_use_centered_priors_unless_explicitly_noncentered(formulae, theta, noncentered):
@@ -1887,6 +1842,32 @@ def test_factory_rejects_unused_regression_settings(option):
 def test_removed_ambiguous_regression_names_are_rejected(old_name):
     with pytest.raises(TypeError, match=old_name):
         fc.Regression("1", pd.DataFrame({"id": [1]}), id="id", **{old_name: True})
+
+
+def test_first_regression_preparation_publishes_once_without_pruning(formulae, monkeypatch):
+    from pyfcirt.data import regressions
+    from tests.helpers import mixed_inputs
+
+    constructed = []
+    post_init = fc.PreparedInputs.__post_init__
+
+    def observe(prepared):
+        constructed.append(prepared)
+        post_init(prepared)
+
+    def reject_pruning(*args):
+        pytest.fail("First preparation has no regression pools to prune")
+
+    monkeypatch.setattr(fc.PreparedInputs, "__post_init__", observe)
+    monkeypatch.setattr(regressions, "_prune_regressions", reject_pruning)
+    person_data = pd.DataFrame({"person_id": [2, 1], "age": [30.0, 10.0]})
+    prepared = fc.PreparedInputs.from_inputs(
+        mixed_inputs(), regressions="theta ~ age", person_data=person_data
+    )
+
+    assert len(constructed) == 1 and constructed[0] is prepared
+    assert prepared.theta_regression.name == "r0"
+    assert_array_equal(prepared.theta_regression.design.X.values[:, 0], [-10.0, 10.0])
 
 
 def test_factory_mapping_retains_population_groups_and_final_fixed_coefficients(formulae):

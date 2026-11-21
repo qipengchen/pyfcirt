@@ -467,16 +467,12 @@ def _theta_design(constant, spec, feature_columns, *, aligned_rows=None):
     return design, defaults, [(target, "theta", None, rows, pools, conditional)]
 
 
-def _parameter_update_candidate(state, declarations, *, regression=False):
-    """Detach the layout, resolve replacements and retire their previous regressions."""
+def _copy_parameter_groups(state):
+    """Detach the published layout metadata before changing ownership."""
     result = state.to_dict()
     constant = result["/constant_data"]
-    # Mutating the candidate layout must not change the source metadata.
     constant.attrs = deepcopy(constant.attrs)
-    active, replaced = _active_updates(constant, declarations, regression=regression)
-    constant, pruned = _prune_regressions(result, constant, replaced)
-    changed_kinds = set(REGRESSION_KINDS) if pruned else set()
-    return result, constant, active, replaced, changed_kinds
+    return result
 
 
 def _finish_parameter_update(prepared, result, constant, changed_kinds):
@@ -653,7 +649,6 @@ def prepare_regressions(
     *,
     marginal_correlation: bool | None = None,
     qualified_priors: Mapping | None = None,
-    theta_alignment=None,
 ) -> PreparedInputs:
     """Build an atomic candidate using latest declaration order and existing layouts."""
     state = prepared.data
@@ -682,15 +677,37 @@ def prepare_regressions(
         result = state.to_dict()
         result["/constant_data"] = current.assign_attrs(marginal_correlation=marginal_correlation)
         return prepared._with_parameter_updates(result)
+    result = _copy_parameter_groups(state)
+    constant = result["/constant_data"]
+    active, replaced = _resolve_regressions(constant, declarations)
+    constant, _ = _prune_regressions(result, constant, replaced)
+    if marginal_correlation is not None:
+        constant.attrs["marginal_correlation"] = marginal_correlation
+    constant, changed_kinds = _bind_regressions(
+        constant, result, active, replaced, qualified_priors=qualified_priors
+    )
+    return _finish_parameter_update(prepared, result, constant, changed_kinds)
+
+
+def _resolve_regressions(constant, declarations):
+    """Check every formula's syntax, then resolve the effective target declarations."""
     features_by_formula = {}
     for _, spec in declarations:
         if not isinstance(spec, Regression):
             raise TypeError("regressions values must be Regression declarations")
         if spec.formula not in features_by_formula:
             features_by_formula[spec.formula] = validate_formula(spec.formula)
-    result, constant, active, replaced, changed_kinds = _parameter_update_candidate(
-        state, declarations, regression=True
-    )
+    active, replaced = _active_updates(constant, declarations, regression=True)
+    return [
+        (target, spec, selected, features_by_formula[spec.formula])
+        for target, spec, selected in active
+    ], replaced
+
+
+def _bind_regressions(
+    constant, groups, active, replaced, *, qualified_priors=None, theta_alignment=None
+):
+    """Fit encoders and bind the resolved targets on a candidate layout."""
     qualified_priors = dict(qualified_priors or {})
     slots_by_binding = defaultdict(list)
     bindings = {binding for binding, _ in replaced if binding != -1}
@@ -700,16 +717,13 @@ def prepare_regressions(
                 binding = slot["binding_id"]
                 if binding in bindings:
                     slots_by_binding[binding].append((measurement["unit_index"], slot["positions"]))
-    if marginal_correlation is not None:
-        constant.attrs["marginal_correlation"] = marginal_correlation
     next_id = constant.attrs["next_regression_id"]
     regression_offset = constant.attrs["population"]["parameter_set_index"] + 1
-    changed_kinds.update(REGRESSION_KINDS)
+    changed_kinds = set(REGRESSION_KINDS)
     arrays = LayoutBuilder(coords={}, attrs={"next_binding_id": constant.attrs["next_binding_id"]})
-    for target, spec, selected in active:
+    for target, spec, selected, feature_columns in active:
         name = f"r{next_id}"
         theta = target == "theta"
-        feature_columns = features_by_formula[spec.formula]
         if theta:
             design, defaults, targets = _theta_design(
                 constant, spec, feature_columns, aligned_rows=theta_alignment
@@ -746,7 +760,7 @@ def prepare_regressions(
                 targets=records,
             )
         )
-        result[f"/covariates/{name}"] = design
+        groups[f"/covariates/{name}"] = design
         next_id += 1
     if qualified_priors:
         raise ValueError(
@@ -756,7 +770,7 @@ def prepare_regressions(
     constant = merge_prepared([constant, arrays])
     if (-1, "theta") in replaced:
         _check_population_directions(constant)
-    return _finish_parameter_update(prepared, result, constant, changed_kinds)
+    return constant, changed_kinds
 
 
 def prepare_priors(prepared: PreparedInputs, priors):
@@ -769,7 +783,11 @@ def prepare_priors(prepared: PreparedInputs, priors):
     for selector, prior in priors.items():
         target = tuple(selector.split(".")) if isinstance(selector, str) else ()
         declarations.append((target, prior))
-    result, constant, active, _, changed_kinds = _parameter_update_candidate(state, declarations)
+    result = _copy_parameter_groups(state)
+    constant = result["/constant_data"]
+    active, replaced = _active_updates(constant, declarations)
+    constant, pruned = _prune_regressions(result, constant, replaced)
+    changed_kinds = set(REGRESSION_KINDS) if pruned else set()
     pending = {}
     for _, prior, selected in active:
         for scope, _, layout, role in selected:
