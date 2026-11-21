@@ -114,10 +114,9 @@ def _native_forward(
         extend_inferencedata=False,
         idata_kwargs=bindings.idata_kwargs(),
     )["posterior_predictive"].to_dataset()
-    for name in _SOURCE_COORDS:
-        if name in final.coords:
-            sampled = sampled.assign_coords({name: final[name]})
-    return sampled
+    return sampled.assign_coords(
+        {name: final[name] for name in _SOURCE_COORDS if name in final.coords}
+    )
 
 
 def _prediction_result(model, groups, *, source, attrs, store, save_responses=True):
@@ -152,13 +151,14 @@ def _prediction_result(model, groups, *, source, attrs, store, save_responses=Tr
         else prepare_output(prepared, ds, name)
         for name, ds in groups.items()
     }
-    design = prepared.response_metadata["design"]
+    metadata = prepared.response_metadata
+    design = metadata["design"]
     groups["design"] = design[["unit_block", "unit_item", "obs_unit", "obs_batch"]].assign_coords(
         block=design.block, item=design.item
     )
     groups.update(
         (path, support)
-        for path, support in prepared.response_metadata.items()
+        for path, support in metadata.items()
         if path.startswith("response_support/")
     )
     return xr.DataTree.from_dict(groups, name=f"{source}_prediction")
@@ -314,7 +314,7 @@ def predictive_view(idata: xr.DataTree, *, block=None, item=None) -> xr.DataTree
     )
     if not {"obs_unit", "obs_batch"} <= design.data_vars.keys():
         raise ValueError("Regenerate predictions to attach their prepared observation catalogue")
-    observations = design.obs_batch.isel(obs=np.flatnonzero(np.isin(design.obs_unit, units)))
+    observations = design.obs_batch.isel(obs=design.obs_unit == units[0])
     batch_ids = np.unique(observations.values)
     if not len(batch_ids):
         raise ValueError(f"Unknown {axis} {unit!r} in predictions")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from functools import partial
 
 import jax
 import jax.numpy as jnp
@@ -12,6 +13,8 @@ from jax.scipy.special import polygamma
 from rich.progress import track
 
 from pyfcirt.analysis.output import read_parameter_point
+
+_FISHER_BATCH_SIZE = 64
 
 
 def categorical_fisher(log_probability, theta):
@@ -41,38 +44,61 @@ def beta_fisher(shapes, theta):
     return parameters, derivative, derivative.T @ shape_information @ derivative
 
 
+@partial(jax.jit, static_argnames=("kernel", "fisher", "n_traits", "n_points"))
+def _batch_fisher(theta, parameters, trait_index, *, kernel, fisher, n_traits, n_points=None):
+    """Evaluate and differentiate the response law before projecting onto global traits."""
+    axes = tuple(None if value.ndim == 0 else 0 for value in parameters)
+    options = {} if n_points is None else {"n_points": n_points}
+
+    def one(ability, *values):
+        return fisher(lambda point: kernel(point, *values, **options), ability)
+
+    outputs, scores, local = jax.vmap(one, in_axes=(0, *axes))(theta, *parameters)
+    projection = jax.nn.one_hot(trait_index, n_traits, dtype=bool)
+    # Sum derivatives from statements measuring the same trait.
+    return (
+        outputs,
+        jnp.einsum("nks,nst->nkt", scores, projection),
+        jnp.einsum("nsi,nst,ntj->nij", projection, local, projection),
+    )
+
+
 def _response_fisher(
-    response, theta, parameters, *, n_traits, intermediates=False, trait_index=None
+    response, theta, parameters, *, n_traits, intermediates=False, trait_index=None, chunk_size=None
 ):
     """Hold actual final item/nuisance values fixed; differentiate only ability."""
     parameters = tuple(jnp.asarray(value) for value in parameters)
     n_obs = len(theta)
     if any(value.ndim and value.shape[0] != n_obs for value in parameters):
         raise ValueError(f"{response.batch.name}: component parameters lack an observation axis")
-    axes = tuple(None if value.ndim == 0 else 0 for value in parameters)
     kind = response.batch.likelihood_kind
     fisher = beta_fisher if kind == "beta" else categorical_fisher
-
     theta = jnp.asarray(theta)
-    projection = jax.nn.one_hot(
-        response.batch.trait if trait_index is None else trait_index, n_traits, dtype=bool
-    )
+    trait_index = response.batch.trait if trait_index is None else trait_index
 
-    def evaluate(**options):
-        def one(ability, *values):
-            return fisher(lambda point: response.kernel(point, *values, **options), ability)
-
-        outputs, scores, local = jax.vmap(one, in_axes=(0, *axes))(theta, *parameters)
-        # Sum derivatives from statements measuring the same trait.
-        return (
-            outputs,
-            jnp.einsum("nks,nst->nkt", scores, projection),
-            jnp.einsum("nsi,nst,ntj->nij", projection, local, projection),
+    def evaluate(n_points=None):
+        kernel = partial(
+            _batch_fisher,
+            kernel=response.kernel,
+            fisher=fisher,
+            n_traits=n_traits,
+            n_points=n_points,
         )
+        if chunk_size is None or n_obs <= chunk_size:
+            return kernel(theta, parameters, trait_index)
+
+        chunks = []
+        for start in range(0, n_obs, chunk_size):
+            rows = slice(start, start + chunk_size)
+            aligned = tuple(value[rows] if value.ndim else value for value in parameters)
+            # Release integration workspaces before dispatching the next chunk.
+            chunks.append(jax.block_until_ready(kernel(theta[rows], aligned, trait_index[rows])))
+        return tuple(jnp.concatenate(parts) for parts in zip(*chunks, strict=True))
 
     outputs, scores, matrices = evaluate()
     diagnostics = {}
     if response.smooth is not None:
+        axes = tuple(None if value.ndim == 0 else 0 for value in parameters)
         smooth = jax.vmap(response.smooth, in_axes=(0, *axes))(theta, *parameters)
         if not bool(smooth.all()):
             raise ValueError(f"{response.batch.name}: information is undefined at a utility cusp")
@@ -106,6 +132,7 @@ def _response_fisher(
     return matrices, (scores if intermediates else None), diagnostics
 
 
+@partial(jax.jit, static_argnames=("n_persons", "n_units"))
 def _aggregate_information(matrices, person, unit, *, n_persons, n_units):
     """Use the single prepared observation relation, without regrouping responses."""
     shape = matrices.shape[-2:]
@@ -167,7 +194,12 @@ def information(
         batch = response.batch
         ability = point.theta.values[batch.person[:, None], batch.trait]
         current, scores, diagnostics = _response_fisher(
-            response, ability, aligned, n_traits=trait_count, intermediates=include_intermediates
+            response,
+            ability,
+            aligned,
+            n_traits=trait_count,
+            intermediates=include_intermediates,
+            chunk_size=_FISHER_BATCH_SIZE if batch.likelihood_kind == "rank" else None,
         )
         matrices = matrices.at[batch.obs_slice].set(current)
         if diagnostics:

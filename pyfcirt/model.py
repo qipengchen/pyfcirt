@@ -16,6 +16,7 @@ from pyfcirt.analysis.output import (
     POSTERIOR_DEPENDENT_GROUPS,
     finalize_samples,
     parameter_point,
+    posterior_samples,
     prepare_outputs,
     replace_output_groups,
     validate_attached_samples,
@@ -257,6 +258,8 @@ class Model:
 
     def _checked_samples(self, idata, *, assume_same_batch=False):
         """Return an aligned posterior after checking the frozen sample contract."""
+        if idata is self.idata:
+            return posterior_samples(idata)
         fixed = self.prepared.result_metadata.get("fixed_parameters")
         posterior = validate_attached_samples(self.prepared, idata, fixed=fixed)
         if "fixed_parameters" in idata and (
@@ -410,13 +413,9 @@ class Model:
             id_columns=id_columns,
             options=options,
         )
-        self._require_mutable()
-        with PriorPreparation():
-            candidate = prepare_regressions(
-                self.prepared, declarations, qualified_priors=qualified_priors
-            )
-        # Publish the complete new specification only after every target succeeds.
-        self._publish(candidate)
+        self._update_parameters(
+            prepare_regressions, declarations, qualified_priors=qualified_priors
+        )
 
     def set_priors(self, priors: Mapping[str, TensorVariable]) -> None:
         """Replace selected ordinary priors and any regressions for those roles.
@@ -426,9 +425,13 @@ class Model:
         """
         from pyfcirt.data.regressions import prepare_priors
 
+        self._update_parameters(prepare_priors, priors)
+
+    def _update_parameters(self, prepare, declarations, **options):
+        """Prepare a candidate with one prior cache, then publish after validation."""
         self._require_mutable()
         with PriorPreparation():
-            candidate = prepare_priors(self.prepared, priors)
+            candidate = prepare(self.prepared, declarations, **options)
         self._publish(candidate)
 
     def _publish(self, candidate):
@@ -451,6 +454,7 @@ class Model:
     data_summary = summary.data_summary
     response_data = summary.response_data
     coef = summary.coef
+    summary = summary.model_summary
     trait_summary = traits.trait_summary
     parameter_point = parameter_point
     prior_predictive = prediction.prior_predictive
@@ -467,27 +471,22 @@ class Model:
     score_model = scoring.score_model
     score = scoring.score
 
-    def summary(self, *, details: bool = False) -> str:
-        """Describe the frozen model; optionally expand scopes and parameterization."""
-        return summary.model_summary(self, details=details)
-
     def _sampling_names(self, var_names=None) -> list[str]:
         """Select outputs and retain final calibration parameters needed by consumers."""
-        from pytensor.graph.traversal import ancestors
-
         if isinstance(var_names, str):
             raise TypeError("var_names must be a sequence of variable names")
-        model = self._bindings.model
-        random = set(model.free_RVs)
-        selected = (
-            [
+        if var_names is None:
+            from pytensor.graph.traversal import ancestors
+
+            model = self._bindings.model
+            free = set(model.free_RVs)
+            selected = [
                 variable.name
                 for variable in model.unobserved_RVs
-                if not variable.name.endswith("_raw") and random.intersection(ancestors([variable]))
+                if not variable.name.endswith("_raw") and not free.isdisjoint(ancestors([variable]))
             ]
-            if var_names is None
-            else list(var_names)
-        )
+        else:
+            selected = list(var_names)
         if self._calibration_prior is not None:
             selected.extend(
                 name for name in self._calibration_prior.var_names if name not in selected

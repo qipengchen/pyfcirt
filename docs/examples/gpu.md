@@ -42,8 +42,8 @@ run inside that vectorization. Explicit settings pass through to PyMC.
 On CPU, the default chain method is parallel, with CPU concurrency detected by
 PyMC. `cores` does not create additional GPU devices.
 
-`set_platform("gpu")` validates GPU availability and retains CPU for covariate
-encoding. Native Windows JAX uses CPU; use a supported Linux environment for
+`set_platform("gpu")` checks GPU availability and keeps the CPU backend available.
+Native Windows JAX uses CPU; use a supported Linux environment for
 NVIDIA GPU analysis. [The estimator example](estimation_backends.md) separates
 sampler selection from graph compilation. Inspect convergence and simulation
 precision as well as elapsed time.

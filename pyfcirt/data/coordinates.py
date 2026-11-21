@@ -304,6 +304,118 @@ def _measurement_slots(constant, bindings):
             yield measurement["unit_index"], slot, block, local, traits
 
 
+def _measurement_parameter_uses(constant, bindings, rebuilt):
+    """Publish final gathers for local measurement slots and collect their uses."""
+    uses = []
+    for unit, slot, block, local, traits in _measurement_slots(constant, bindings):
+        if block["kind"] in rebuilt:
+            values = constant[block["entry_index"]].values.ravel()[local.values]
+            measurement = constant.attrs["measurements"][unit]["name"]
+            slot["entry_index"] = variable = f"{measurement}_{slot['key']}_entry_index"
+            constant[variable] = local.dims, values
+        else:
+            values = constant[slot["entry_index"]].values
+        entries = values.ravel()
+        active = np.flatnonzero(entries >= 0)
+        if active.size:
+            uses.append(
+                np.broadcast_arrays(
+                    block["kind"],
+                    entries[active],
+                    unit,
+                    slot["key"],
+                    active,
+                    -1 if traits is None else traits[active],
+                )
+            )
+    return uses
+
+
+def _regression_parameter_uses(constant, regression_plans):
+    """Project each coefficient and residual pool onto its measurement units."""
+    uses = []
+    for scope in regression_plans:
+        coefficient = next((b for b in scope["blocks"] if b.get("key") == "coefficients"), None)
+        if coefficient is None:
+            continue
+        coefficient_map = constant[coefficient["entry_index"]].values
+        residual = next(b for b in scope["blocks"] if b["key"] == "residual_sd")
+        residual_map = constant[residual["entry_index"]].values
+        grid = constant[scope["coefficient_positions"]]
+        positions = grid.values
+        trait_by_pool = constant[f"{grid.dims[0]}_trait_index"].values
+        for target in scope["targets"]:
+            if not target["unit_pools"]:
+                continue
+            units, pools = np.asarray(target["unit_pools"], dtype=np.int64).T
+            term_positions = positions[pools]
+            # Keep each pool's coefficient slots before its residual slot.
+            entries = np.column_stack(
+                (coefficient_map.ravel()[term_positions], residual_map[pools])
+            )
+            is_residual = np.broadcast_to(
+                np.arange(entries.shape[1]) == positions.shape[1], entries.shape
+            )
+            uses.append(
+                (
+                    np.where(is_residual, "regression_sd", "regression_coefficient").ravel(),
+                    entries.ravel(),
+                    np.repeat(units, entries.shape[1]),
+                    np.where(is_residual, "residual_sd", "coefficients").ravel(),
+                    np.column_stack((term_positions, pools)).ravel(),
+                    np.repeat(trait_by_pool[pools], entries.shape[1]),
+                )
+            )
+    return uses
+
+
+def _publish_parameter_uses(constant, prior, uses, retained, *, measurement_uses):
+    """Write usage columns in measurement order, then regression order."""
+    retained_uses = 0 if retained is None else len(prior.parameter_use.values[retained])
+    if retained_uses or uses:
+        count = retained_uses + sum(chunk[0].size for chunk in uses)
+        constant.add_coords({"parameter_use": np.arange(count, dtype=np.int64)})
+        fields = ("kind", "entry_index", "unit_index", "key", "slot_position", "trait_index")
+        columns = zip(*uses, strict=True) if uses else [()] * len(fields)
+        for field, chunks in zip(fields, columns, strict=True):
+            name = f"parameter_use_{field}"
+            if retained_uses:
+                existing = prior.variables[name].values[retained]
+                chunks = (*chunks, existing) if measurement_uses else (existing, *chunks)
+            dtype = str if field in {"kind", "key"} else np.int64
+            values = chunks[0] if len(chunks) == 1 else np.concatenate(chunks)
+            constant[name] = "parameter_use", values.astype(dtype, copy=False)
+
+
+def _existing_parameter_ids(constant, blocks):
+    """Read published entry IDs and the next available ID for each affected kind."""
+    previous_ids, next_ids = {}, {}
+    for block in blocks:
+        kind = block["kind"]
+        axis = f"{kind}_id"
+        if "entry_index" in block and axis in constant.coords:
+            entries = constant[block["entry_index"]].values.ravel()
+            labels = _gather_entries(constant[axis].values, entries, -1)
+            previous_ids[block["binding_id"]] = labels
+            next_ids[kind] = max(next_ids.get(kind, 0), int(labels.max(initial=-1)) + 1)
+    return previous_ids, next_ids
+
+
+def _regression_entry_metadata(constant, regression_plans):
+    """Align each regression binding to its coefficient order and pool labels."""
+    regression_entries = {}
+    for plan in regression_plans:
+        index = plan["regression_index"]
+        position_grid = constant[plan["coefficient_positions"]]
+        pool_dim, term_dim = position_grid.dims
+        labels = tuple(constant[f"{pool_dim}_{field}"].values for field in REGRESSION_POOL_FIELDS)
+        terms = constant[term_dim].values
+        order = np.argsort(position_grid.values.ravel())
+        for block in plan["blocks"]:
+            regression_entries[block["binding_id"]] = index, order, terms, labels
+    return regression_entries
+
+
 def finalize_parameters(constant, *, changed=None):
     """Publish affected kinds and update gathers for new person-local blocks."""
     previous = {record["kind"]: record for record in constant.attrs.get("parameters", ())}
@@ -323,15 +435,7 @@ def finalize_parameters(constant, *, changed=None):
     }
     # Keep the previous catalogue for one block-at-a-time projection during rebuild.
     prior = constant
-    previous_ids, next_ids = {}, {}
-    for _, block in blocks:
-        kind = block["kind"]
-        axis = f"{kind}_id"
-        if "entry_index" in block and axis in constant.coords:
-            entries = constant[block["entry_index"]].values.ravel()
-            labels = _gather_entries(constant[axis].values, entries, -1)
-            previous_ids[block["binding_id"]] = labels
-            next_ids[kind] = max(next_ids.get(kind, 0), int(labels.max(initial=-1)) + 1)
+    previous_ids, next_ids = _existing_parameter_ids(constant, (block for _, block in blocks))
     drop_dims = {
         dim
         for kind, record in previous.items()
@@ -366,16 +470,7 @@ def finalize_parameters(constant, *, changed=None):
     defaults.update(term="", target_kind="", scale="identity")
     owners = {scope["name"]: scope for scope in constant.attrs["owners"]}
     regression_plans = constant.attrs["regression_scopes"] if regression_uses else ()
-    regression_entries = {}
-    for plan in regression_plans:
-        index = plan["regression_index"]
-        position_grid = constant[plan["coefficient_positions"]]
-        pool_dim, term_dim = position_grid.dims
-        labels = tuple(constant[f"{pool_dim}_{field}"].values for field in REGRESSION_POOL_FIELDS)
-        terms = constant[term_dim].values
-        order = np.argsort(position_grid.values.ravel())
-        for block in plan["blocks"]:
-            regression_entries[block["binding_id"]] = index, order, terms, labels
+    regression_entries = _regression_entry_metadata(constant, regression_plans)
     dependent_bounds = []
     for kind, members in rebuilt.items():
         native = all(
@@ -549,76 +644,11 @@ def finalize_parameters(constant, *, changed=None):
     for kind, entries, lower, positions in dependent_bounds:
         lower_entries = constant[lower["entry_index"]].values.ravel()
         constant[f"{kind}_lower_entry_index"].values.ravel()[entries] = lower_entries[positions]
-    # Measurement slots are still local design instructions; replace their final gathers.
     uses = []
-    slots = _measurement_slots(constant, bindings) if measurement_uses else ()
-    for unit, slot, block, local, traits in slots:
-        if block["kind"] in rebuilt:
-            values = constant[block["entry_index"]].values.ravel()[local.values]
-            measurement = constant.attrs["measurements"][unit]["name"]
-            slot["entry_index"] = variable = f"{measurement}_{slot['key']}_entry_index"
-            constant[variable] = local.dims, values
-        else:
-            values = constant[slot["entry_index"]].values
-        entries = values.ravel()
-        active = np.flatnonzero(entries >= 0)
-        if active.size:
-            uses.append(
-                np.broadcast_arrays(
-                    block["kind"],
-                    entries[active],
-                    unit,
-                    slot["key"],
-                    active,
-                    -1 if traits is None else traits[active],
-                )
-            )
-    for scope in regression_plans:
-        coefficient = next((b for b in scope["blocks"] if b.get("key") == "coefficients"), None)
-        if coefficient is None:
-            continue
-        coefficient_map = constant[coefficient["entry_index"]].values
-        residual = next(b for b in scope["blocks"] if b["key"] == "residual_sd")
-        residual_map = constant[residual["entry_index"]].values
-        grid = constant[scope["coefficient_positions"]]
-        positions = grid.values
-        trait_by_pool = constant[f"{grid.dims[0]}_trait_index"].values
-        for target in scope["targets"]:
-            if not target["unit_pools"]:
-                continue
-            units, pools = np.asarray(target["unit_pools"], dtype=np.int64).T
-            term_positions = positions[pools]
-            # Keep each pool's coefficient slots before its residual slot.
-            entries = np.column_stack(
-                (coefficient_map.ravel()[term_positions], residual_map[pools])
-            )
-            is_residual = np.broadcast_to(
-                np.arange(entries.shape[1]) == positions.shape[1], entries.shape
-            )
-            uses.append(
-                (
-                    np.where(is_residual, "regression_sd", "regression_coefficient").ravel(),
-                    entries.ravel(),
-                    np.repeat(units, entries.shape[1]),
-                    np.where(is_residual, "residual_sd", "coefficients").ravel(),
-                    np.column_stack((term_positions, pools)).ravel(),
-                    np.repeat(trait_by_pool[pools], entries.shape[1]),
-                )
-            )
-    retained_uses = 0 if retained is None else len(prior.parameter_use.values[retained])
-    if retained_uses or uses:
-        count = retained_uses + sum(chunk[0].size for chunk in uses)
-        constant.add_coords({"parameter_use": np.arange(count, dtype=np.int64)})
-        fields = ("kind", "entry_index", "unit_index", "key", "slot_position", "trait_index")
-        columns = zip(*uses, strict=True) if uses else [()] * len(fields)
-        for field, chunks in zip(fields, columns, strict=True):
-            name = f"parameter_use_{field}"
-            if retained_uses:
-                existing = prior.variables[name].values[retained]
-                chunks = (*chunks, existing) if measurement_uses else (existing, *chunks)
-            dtype = str if field in {"kind", "key"} else np.int64
-            values = chunks[0] if len(chunks) == 1 else np.concatenate(chunks)
-            constant[name] = "parameter_use", values.astype(dtype, copy=False)
+    if measurement_uses:
+        uses.extend(_measurement_parameter_uses(constant, bindings, rebuilt))
+    uses.extend(_regression_parameter_uses(constant, regression_plans))
+    _publish_parameter_uses(constant, prior, uses, retained, measurement_uses=measurement_uses)
     constant.attrs["parameters"] = [records[kind] for kind in grouped]
     return constant.build()
 
@@ -693,6 +723,142 @@ def _ownership(units, measurements, unit_blocks, block_statements):
     return owners
 
 
+def _layout_statement_features(ds, channels, statement_index):
+    """Align optional feature columns to the canonical statement axis."""
+    for channel in channels:
+        if "statement_features" not in channel.tables:
+            continue
+        features = channel.tables["statement_features"]
+        ds.attrs["statement_features"] = []
+        for column in features.columns:
+            if column == "statement_id":
+                continue
+            if isinstance(column, (bool, np.bool_)) or not isinstance(column, (str, int)):
+                raise ValueError("Statement feature column names must be strings or integers")
+            values = np.full(ds.sizes["statement"], None, dtype=object)
+            for label, value in zip(features.statement_id, features[column], strict=True):
+                if value is None or value is pd.NA:
+                    continue
+                if not isinstance(
+                    value, (str, bool, int, float, np.integer, np.floating, np.bool_)
+                ):
+                    raise ValueError(
+                        "Statement features must contain scalar numbers, strings or booleans"
+                    )
+                if pd.isna(value):
+                    continue
+                if isinstance(value, (float, np.floating)) and not np.isfinite(value):
+                    raise ValueError("Numeric statement features must be finite or missing")
+                values[statement_index[("fc", label)]] = (
+                    value.item() if isinstance(value, np.generic) else value
+                )
+            variable = f"statement_feature_{len(ds.attrs['statement_features'])}"
+            ds[variable] = "statement", values
+            ds.attrs["statement_features"].append(dict(name=column, variable=variable))
+
+
+def _layout_fc_membership(ds, frame, units, block_index, statement_index, trait_index):
+    """Index FC membership and validate attributes of shared statements."""
+    block_rows = frame.block_id.map(block_index).to_numpy(dtype=np.intp)
+    sizes = np.asarray([r["size"] for r in units if r["channel"] == "fc"], dtype=np.int64)
+    size = int(sizes.max())
+    ds.add_coords({"position": np.arange(size, dtype=np.int64)})
+    membership = np.full((len(block_index), size), -1, dtype=np.int64)
+    membership[block_rows, frame.position.to_numpy(dtype=np.intp) - 1] = [
+        statement_index[("fc", label)] for label in frame.statement_id
+    ]
+    ds["fc_statement"] = ("block", "position"), membership
+    ds["fc_size"] = "block", sizes
+    first = frame.drop_duplicates("statement_id")
+    for row in first.itertuples():
+        index = statement_index[("fc", row.statement_id)]
+        ds["statement_trait"].values[index] = trait_index[row.trait]
+        ds["statement_keying"].values[index] = row.keying
+    for column in ("location_side", "fix_loading", "fix_var"):
+        for label, value in _consistent_column(frame, "statement_id", column).items():
+            ds[f"statement_{column}"].values[statement_index[("fc", label)]] = value
+    return membership
+
+
+def _layout_item_traits(ds, rows, items, item_index, statement_index, trait_index):
+    """Index the active trait and declared constraints of each item."""
+    q = np.zeros((len(items), len(trait_index)), dtype=bool)
+    sides, fixed = np.full(q.shape, np.nan), np.full(q.shape, np.nan)
+    for row in rows:
+        item, trait = item_index[row.item_id], trait_index[row.trait]
+        q[item, trait] = True
+        sides[item, trait] = getattr(row, "location_side", np.nan)
+        value = getattr(row, "fix_loading", np.nan)
+        if not pd.isna(value):
+            if isinstance(value, (bool, np.bool_)) or not isinstance(value, Real):
+                raise ValueError("fix_loading must contain real numeric values or missing cells")
+            fixed[item, trait] = value
+    ds["item_q"] = ("item", "trait"), q
+    ds["item_location_side"] = ("item", "trait"), sides
+    ds["item_fix_loading"] = ("item", "trait"), fixed
+    ds["item_statement"] = (
+        "item",
+        np.array([statement_index[("items", item)] for item in items], dtype=np.int64),
+    )
+
+
+def _layout_population(
+    ds,
+    people,
+    traits,
+    trait_index,
+    population,
+    person_data,
+    theta_parameterization,
+    centered_traits,
+    *,
+    fc_design,
+):
+    """Bind fitted population groups and partition the established trait axis."""
+    recipe, groups, alignment = fit_groups(person_data, people, population)
+    ds.add_coords(
+        {"theta_predictor": _labels(()), "population_group": _labels(recipe["groups"] or ("all",))}
+    )
+    ds["person_group"] = "person", groups
+    ds["predictors"] = ("person", "theta_predictor"), np.empty((len(people), 0))
+    if centered_traits is None:
+        if theta_parameterization == "conditional":
+            centered = set(fc_design.trait) if fc_design is not None else set()
+        else:
+            centered = set(traits) if theta_parameterization == "centered" else set()
+    else:
+        selected = identifiers(centered_traits, "centered_traits")
+        centered = set(selected)
+        if len(centered) != len(selected):
+            raise ValueError("centered_traits contains duplicate trait IDs")
+        if centered - set(traits):
+            raise ValueError(
+                f"centered_traits contains unknown trait IDs: {centered - set(traits)}"
+            )
+    ds.add_coords(
+        {
+            "centered_trait": _labels([trait for trait in traits if trait in centered]),
+            "noncentered_trait": _labels([trait for trait in traits if trait not in centered]),
+        }
+    )
+    ds["centered_index"] = (
+        "centered_trait",
+        np.array([trait_index[t] for t in ds.centered_trait.values], dtype=np.int64),
+    )
+    ds["noncentered_index"] = (
+        "noncentered_trait",
+        np.array([trait_index[t] for t in ds.noncentered_trait.values], dtype=np.int64),
+    )
+    ds.attrs["population"] = dict(
+        name="population",
+        specification=population,
+        recipe=recipe,
+        theta_parameterization=theta_parameterization,
+        blocks=[],
+    )
+    return alignment
+
+
 def prepare_layout(
     channels: tuple[NormalizedChannel, ...],
     *,
@@ -700,8 +866,8 @@ def prepare_layout(
     person_data,
     theta_parameterization: str,
     centered_traits=None,
-) -> LayoutBuilder:
-    """Lay out the normalized entities and their measurement ownership."""
+) -> tuple[LayoutBuilder, tuple[np.ndarray, pd.Index] | None]:
+    """Lay out normalized entities and return the transient person-table alignment."""
     # Dict insertion order preserves first-seen axes across response channels.
     people, traits, blocks, items, statement_keys = {}, {}, {}, {}, {}
     units, measurements, unit_ids = [], [], []
@@ -769,36 +935,7 @@ def prepare_layout(
         attrs=dict(units=units, measurements=measurements),
     )
     statement_index = {key: index for index, key in enumerate(statement_keys)}
-    for channel in channels:
-        if "statement_features" not in channel.tables:
-            continue
-        features = channel.tables["statement_features"]
-        ds.attrs["statement_features"] = []
-        for column in features.columns:
-            if column == "statement_id":
-                continue
-            if isinstance(column, (bool, np.bool_)) or not isinstance(column, (str, int)):
-                raise ValueError("Statement feature column names must be strings or integers")
-            values = np.full(len(statement_keys), None, dtype=object)
-            for label, value in zip(features.statement_id, features[column], strict=True):
-                if value is None or value is pd.NA:
-                    continue
-                if not isinstance(
-                    value, (str, bool, int, float, np.integer, np.floating, np.bool_)
-                ):
-                    raise ValueError(
-                        "Statement features must contain scalar numbers, strings or booleans"
-                    )
-                if pd.isna(value):
-                    continue
-                if isinstance(value, (float, np.floating)) and not np.isfinite(value):
-                    raise ValueError("Numeric statement features must be finite or missing")
-                values[statement_index[("fc", label)]] = (
-                    value.item() if isinstance(value, np.generic) else value
-                )
-            variable = f"statement_feature_{len(ds.attrs['statement_features'])}"
-            ds[variable] = "statement", values
-            ds.attrs["statement_features"].append(dict(name=column, variable=variable))
+    _layout_statement_features(ds, channels, statement_index)
     trait_index = {label: index for index, label in enumerate(traits)}
     block_index = {label: index for index, label in enumerate(blocks)}
     item_index = {label: index for index, label in enumerate(items)}
@@ -832,46 +969,11 @@ def prepare_layout(
         ds[f"statement_{column}"] = "statement", np.full(len(statement_keys), default)
     membership = None
     if "fc" in designs:
-        frame = designs["fc"]
-        block_rows = frame.block_id.map(block_index).to_numpy(dtype=np.intp)
-        sizes = np.asarray([r["size"] for r in units if r["channel"] == "fc"], dtype=np.int64)
-        size = int(sizes.max())
-        ds.add_coords({"position": np.arange(size, dtype=np.int64)})
-        membership = np.full((len(blocks), size), -1, dtype=np.int64)
-        membership[block_rows, frame.position.to_numpy(dtype=np.intp) - 1] = [
-            statement_index[("fc", label)] for label in frame.statement_id
-        ]
-        ds["fc_statement"] = ("block", "position"), membership
-        ds["fc_size"] = "block", sizes
-        first = frame.drop_duplicates("statement_id")
-        for row in first.itertuples():
-            index = statement_index[("fc", row.statement_id)]
-            ds["statement_trait"].values[index] = trait_index[row.trait]
-            ds["statement_keying"].values[index] = row.keying
-        for column in ("location_side", "fix_loading", "fix_var"):
-            for label, value in _consistent_column(frame, "statement_id", column).items():
-                ds[f"statement_{column}"].values[statement_index[("fc", label)]] = value
-    q = np.zeros((len(items), len(traits)), dtype=bool)
-    sides, fixed = np.full(q.shape, np.nan), np.full(q.shape, np.nan)
-    if "items" in designs:
-        for row in designs["items"].itertuples():
-            item, trait = item_index[row.item_id], trait_index[row.trait]
-            q[item, trait] = True
-            sides[item, trait] = getattr(row, "location_side", np.nan)
-            value = getattr(row, "fix_loading", np.nan)
-            if not pd.isna(value):
-                if isinstance(value, (bool, np.bool_)) or not isinstance(value, Real):
-                    raise ValueError(
-                        "fix_loading must contain real numeric values or missing cells"
-                    )
-                fixed[item, trait] = value
-    ds["item_q"] = ("item", "trait"), q
-    ds["item_location_side"] = ("item", "trait"), sides
-    ds["item_fix_loading"] = ("item", "trait"), fixed
-    ds["item_statement"] = (
-        "item",
-        np.array([statement_index[("items", item)] for item in items], dtype=np.int64),
-    )
+        membership = _layout_fc_membership(
+            ds, designs["fc"], units, block_index, statement_index, trait_index
+        )
+    item_rows = designs["items"].itertuples() if "items" in designs else ()
+    _layout_item_traits(ds, item_rows, items, item_index, statement_index, trait_index)
     owners = ds.attrs["owners"] = _ownership(units, measurements, ds.unit_block.values, membership)
     for owner in owners:
         indices = owner["units"]
@@ -898,52 +1000,20 @@ def prepare_layout(
         owner["statement_indices"] = f"{owner['name']}_statement_index"
         ds[owner["statement_indices"]] = dim, np.asarray(statements, dtype=np.int64)
         owner["blocks"] = []
-    recipe, groups = fit_groups(person_data, people, population)
-    ds.add_coords(
-        {"theta_predictor": _labels(()), "population_group": _labels(recipe["groups"] or ("all",))}
-    )
-    ds["person_group"] = "person", groups
-    ds["predictors"] = ("person", "theta_predictor"), np.empty((len(people), 0))
-    if centered_traits is None:
-        if theta_parameterization == "conditional":
-            centered = (
-                {row.trait for row in designs["fc"].itertuples()} if "fc" in designs else set()
-            )
-        else:
-            centered = set(traits) if theta_parameterization == "centered" else set()
-    else:
-        selected = identifiers(centered_traits, "centered_traits")
-        centered = set(selected)
-        if len(centered) != len(selected):
-            raise ValueError("centered_traits contains duplicate trait IDs")
-        if centered - set(traits):
-            raise ValueError(
-                f"centered_traits contains unknown trait IDs: {centered - set(traits)}"
-            )
-    ds.add_coords(
-        {
-            "centered_trait": _labels([trait for trait in traits if trait in centered]),
-            "noncentered_trait": _labels([trait for trait in traits if trait not in centered]),
-        }
-    )
-    ds["centered_index"] = (
-        "centered_trait",
-        np.array([trait_index[t] for t in ds.centered_trait.values], dtype=np.int64),
-    )
-    ds["noncentered_index"] = (
-        "noncentered_trait",
-        np.array([trait_index[t] for t in ds.noncentered_trait.values], dtype=np.int64),
-    )
-    ds.attrs["population"] = dict(
-        name="population",
-        specification=population,
-        recipe=recipe,
-        theta_parameterization=theta_parameterization,
-        blocks=[],
+    alignment = _layout_population(
+        ds,
+        people,
+        traits,
+        trait_index,
+        population,
+        person_data,
+        theta_parameterization,
+        centered_traits,
+        fc_design=designs.get("fc"),
     )
     for index, scope in enumerate(_parameter_scopes(ds)):
         scope["parameter_set_index"] = index
-    return ds
+    return ds, alignment
 
 
 def _person_key(label):

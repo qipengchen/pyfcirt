@@ -173,11 +173,35 @@ def test_log_aggregation_retains_extreme_comparison_and_equal_ties():
     assert np.array_equal(indicator, [[[False], [True]]])
 
 
-def test_residuals_match_observed_minus_expected_in_each_native_support(supplied_model):
+@pytest.mark.parametrize("cache", ["none", "full", "partial", "subset"])
+def test_residuals_match_observed_minus_expected_in_each_native_support(
+    supplied_model, monkeypatch, cache
+):
+    from pyfcirt.analysis import checks
+
     predictions = fc.posterior_predictive(
-        supplied_model, store=False, random_seed=12, progressbar=False
+        supplied_model, store=cache in {"full", "partial"}, random_seed=12, progressbar=False
     )
+    if cache == "partial":
+        saved = supplied_model.idata["response_probabilities"].to_dataset()
+        missing = next(iter(saved.data_vars))
+        supplied_model.idata["response_probabilities"] = saved.drop_vars(missing)
+    if cache == "subset":
+        fc.posterior_predictive(
+            supplied_model, draws=1, store=True, random_seed=12, progressbar=False
+        )
+    evaluations = []
+    native_forward = checks._native_forward
+
+    def evaluate(bindings, posterior, names, **kwargs):
+        evaluations.append(names)
+        return native_forward(bindings, posterior, names, **kwargs)
+
+    monkeypatch.setattr(checks, "_native_forward", evaluate)
     residuals = fc.residuals(supplied_model, progressbar=False)
+    assert len(evaluations) == (0 if cache == "full" else 1)
+    if cache == "partial":
+        assert evaluations == [[missing]]
     for response in supplied_model._bindings.responses:
         batch = response.batch
         probability = predictions["response_probabilities"][f"{batch.name}_p"].values
@@ -429,7 +453,7 @@ def test_tirt_pair_grouping_uses_statement_coordinates():
     assert coords["statement_2"][1].tolist() == ["b", "c"]
 
 
-def test_beta_response_prediction_residual_and_information_share_native_shape_law():
+def test_beta_response_prediction_residual_and_information_share_native_shape_law(monkeypatch):
     from dataclasses import replace
 
     import pandas as pd
@@ -461,6 +485,11 @@ def test_beta_response_prediction_residual_and_information_share_native_shape_la
     expected = observed - shapes[f"{batch.name}_alpha"] / (
         shapes[f"{batch.name}_alpha"] + shapes[f"{batch.name}_beta"]
     )
+
+    def repeated_evaluation(*args, **kwargs):
+        pytest.fail("Residuals should reuse the saved full-draw Beta shapes")
+
+    monkeypatch.setattr("pyfcirt.analysis.checks._native_forward", repeated_evaluation)
     actual = fc.residuals(model, progressbar=False)[f"{batch.name}_residual"]
     xr.testing.assert_allclose(actual.transpose(*expected.dims), expected)
     with pytest.raises(NotImplementedError, match="Beta"):

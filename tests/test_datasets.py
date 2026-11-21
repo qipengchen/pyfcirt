@@ -75,6 +75,25 @@ def test_resource_checksums_match_installed_bytes():
                     )
 
 
+def test_cohort_filenames_record_the_number_of_people():
+    root = files("pyfcirt").joinpath("_example_data")
+    for parent in (root, root.joinpath("studies")):
+        for case in parent.iterdir():
+            if not case.is_dir() or case.name == "studies":
+                continue
+            for resource in case.iterdir():
+                if not resource.name.endswith(".json.gz"):
+                    continue
+                payload = json.loads(gzip.decompress(resource.read_bytes()))
+                people = set()
+                for entry in payload["inputs"]:
+                    for table in (entry["responses"], entry["administration"]):
+                        if table is not None:
+                            column = table["columns"].index("person_id")
+                            people.update(row[column] for row in table["rows"])
+                assert resource.name == f"n{len(people)}.json.gz", case.name
+
+
 @pytest.mark.parametrize("name", ["unknown", "../ranking", None])
 def test_unknown_examples_report_available_names(name):
     with pytest.raises(ValueError, match="Available examples"):
@@ -277,17 +296,17 @@ def test_companion_csv_ids_are_literal_strings(monkeypatch, tmp_path):
     from pyfcirt.data import examples
 
     root = files("pyfcirt").joinpath("_example_data")
-    payload = json.loads(root.joinpath("ranking.json").read_text(encoding="utf-8"))
+    payload = json.loads(gzip.decompress(root.joinpath("ranking", "n2.json.gz").read_bytes()))
     source_ids = list(dict.fromkeys(row[0] for row in payload["inputs"][0]["responses"]["rows"]))
     ids = dict(zip(source_ids, ["001", "NA"], strict=True))
     for row in payload["inputs"][0]["responses"]["rows"]:
         row[0] = ids[row[0]]
-    payload["metadata"]["companion_tables"] = {"person_data": "people.csv"}
+    payload["metadata"]["companion_tables"] = {"person_data": "literal/people.csv"}
     (tmp_path / "_example_data" / "studies").mkdir(parents=True)
-    (tmp_path / "_example_data" / "literal.json").write_text(json.dumps(payload), encoding="utf-8")
-    (tmp_path / "_example_data" / "people.csv").write_text(
-        "person_id,value\nNA,2.5\n001,1.5\n", encoding="utf-8"
-    )
+    example_dir = tmp_path / "_example_data" / "literal"
+    example_dir.mkdir()
+    (example_dir / "n2.json.gz").write_bytes(gzip.compress(json.dumps(payload).encode("utf-8")))
+    (example_dir / "people.csv").write_text("person_id,value\nNA,2.5\n001,1.5\n", encoding="utf-8")
     monkeypatch.setattr(examples, "files", lambda package: tmp_path)
     example = fc.load_example("literal", model="MGPPM", n_persons=2)
     assert example.person_data.person_id.tolist() == ["NA", "001"]

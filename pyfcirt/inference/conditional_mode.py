@@ -8,7 +8,7 @@ from typing import NamedTuple
 
 import jax
 import jax.numpy as jnp
-from blackjax.mcmc.proposal import compute_asymmetric_acceptance_ratio, static_binomial_sampling
+from blackjax.mcmc.proposal import safe_energy_diff, static_binomial_sampling
 from blackjax.mcmc.random_walk import RWState
 from jax.scipy.special import logsumexp
 from jax.scipy.stats import norm
@@ -135,10 +135,12 @@ def independence_step(key, value, *, logdensity, proposal: ModeProposal):
     previous = RWState(value, logdensity(value))
     proposed = RWState(candidate, logdensity(candidate))
 
-    def transition_energy(old, new):
-        return -new.logdensity - proposal.logdensity(old.position)
-
-    ratio = compute_asymmetric_acceptance_ratio(transition_energy)(previous, proposed)
+    previous_proposal = proposal.logdensity(value)
+    candidate_proposal = proposal.logdensity(candidate)
+    ratio = safe_energy_diff(
+        -previous.logdensity - candidate_proposal,
+        -proposed.logdensity - previous_proposal,
+    )
     updated, (accepted, probability, _) = jax.vmap(static_binomial_sampling)(
         jax.random.split(accept_key, value.size),
         ratio.reshape(-1),
@@ -151,7 +153,7 @@ def independence_step(key, value, *, logdensity, proposal: ModeProposal):
     )
     invalid = (
         ~jnp.isfinite(candidate)
-        | ~jnp.isfinite(proposal.logdensity(candidate))
+        | ~jnp.isfinite(candidate_proposal)
         | jnp.isnan(proposed.logdensity)
         | jnp.isposinf(proposed.logdensity)
     )

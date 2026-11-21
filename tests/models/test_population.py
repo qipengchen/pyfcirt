@@ -408,7 +408,7 @@ def test_group_recipe_uses_training_order_and_replays_custom_ids(groups):
     first, reference, unseen = groups
     people = pd.DataFrame({"person_id": [2, 1, 9], "school": [reference, first, unseen]})
     population = fc.PopulationSpec(group="school", reference_group=reference)
-    recipe, index = fit_groups(people, [1, 2], population)
+    recipe, index, _ = fit_groups(people, [1, 2], population)
     assert recipe["groups"] == [first, reference]
     assert recipe["reference_group"] == reference
     np.testing.assert_array_equal(index, [0, 1])
@@ -417,7 +417,9 @@ def test_group_recipe_uses_training_order_and_replays_custom_ids(groups):
     np.testing.assert_array_equal(apply_groups(recipe, new, positions, identities), [1])
     with pytest.raises(ValueError, match="Unknown population groups"):
         apply_groups(recipe, new.assign(school=unseen), positions, identities)
-    ungrouped, index = fit_groups(pd.DataFrame({"person_id": [2, 1]}), [1, 2], fc.PopulationSpec())
+    ungrouped, index, _ = fit_groups(
+        pd.DataFrame({"person_id": [2, 1]}), [1, 2], fc.PopulationSpec()
+    )
     assert ungrouped["groups"] == []
     np.testing.assert_array_equal(index, [0, 0])
 

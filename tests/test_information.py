@@ -8,7 +8,7 @@ import pytest
 import xarray as xr
 from numpy.testing import assert_allclose
 
-from pyfcirt.analysis.information import _aggregate_information, categorical_fisher
+from pyfcirt.analysis.information import _aggregate_information, _batch_fisher, categorical_fisher
 from pyfcirt.models.likert import DichotomousIRTDistribution
 
 
@@ -281,6 +281,33 @@ def test_information_point_rejects_conflicting_source_and_malformed_theta(suppli
     xr.testing.assert_identical(actual.theta, point.theta)
 
 
+def test_batch_fisher_uses_runtime_parameters_and_trait_indices():
+    from jax import nn
+
+    def kernel(theta, loading):
+        return nn.log_softmax(jnp.stack((jnp.zeros_like(theta[0]), loading * theta[0])))
+
+    theta = jnp.zeros((2, 1))
+    for loading, trait_index in (([2.0, 4.0], [[0], [1]]), ([6.0, 8.0], [[1], [0]])):
+        probabilities, scores, matrices = _batch_fisher(
+            theta,
+            (jnp.asarray(loading),),
+            jnp.asarray(trait_index),
+            kernel=kernel,
+            fisher=categorical_fisher,
+            n_traits=2,
+        )
+        rows = np.arange(2)
+        traits = np.ravel(trait_index)
+        expected_scores = np.zeros((2, 2, 2))
+        expected_scores[rows, :, traits] = np.asarray(loading)[:, None] * [-0.5, 0.5]
+        expected_matrices = np.zeros((2, 2, 2))
+        expected_matrices[rows, traits, traits] = np.square(loading) / 4
+        assert_allclose(probabilities, 0.5)
+        assert_allclose(scores, expected_scores)
+        assert_allclose(matrices, expected_matrices)
+
+
 def test_native_gaussian_rank_information_retains_refinement_diagnostics():
     import pandas as pd
 
@@ -303,6 +330,58 @@ def test_native_gaussian_rank_information_retains_refinement_diagnostics():
         assert diagnostic["probability_refinement_max"] == 0
         assert "refinement is not an error bound" in diagnostic["integration_method"]
     assert "block_information" in result and "item_information" not in result
+
+
+def test_rank_information_short_tail_matches_full_batch(monkeypatch):
+    from importlib import import_module
+
+    import pandas as pd
+
+    import pyfcirt as fc
+
+    rows = 67
+    source = fc.FCInput(
+        fc.FCDesignMapping(traits={"A": ["a", "c"], "B": ["b"]}, blocks={"triad": ["a", "b", "c"]}),
+        fc.ResponseTable(
+            pd.DataFrame(
+                {"person_id": np.arange(rows), "block_id": "triad", "response": [[1, 2, 3]] * rows}
+            ),
+            format="block_long",
+        ),
+        model=fc.TIRTRank(loading_anchors={"a": 1.0, "b": 0.8}),
+        response_format="rank",
+    )
+    model = fc.Model(fc.PreparedInputs.from_inputs(source))
+    prior = fc.prior_predictive(model, draws=1, random_seed=16, store=False)
+    point = prior["prior"].to_dataset().isel(chain=0, draw=0, drop=True)
+    point = point.assign(
+        theta=point.theta.copy(
+            data=np.linspace(-0.5, 0.5, point.theta.size).reshape(point.theta.shape)
+        ),
+        statement_intercept=xr.zeros_like(point.statement_intercept),
+    )
+    module = import_module("pyfcirt.analysis.information")
+    original = module._batch_fisher
+    sizes = []
+
+    def record(ability, *args, **kwargs):
+        sizes.append(len(ability))
+        return original(ability, *args, **kwargs)
+
+    monkeypatch.setattr(module, "_batch_fisher", record)
+    options = dict(parameters=point, include_intermediates=True, store=False, progressbar=False)
+    chunked = fc.information(model, **options)
+    assert sizes == [64, 3, 64, 3]
+    monkeypatch.setattr(module, "_FISHER_BATCH_SIZE", rows)
+    full = fc.information(model, **options)
+    xr.testing.assert_identical(
+        xr.Dataset(coords=dict(chunked.coords)), xr.Dataset(coords=dict(full.coords))
+    )
+    xr.testing.assert_allclose(chunked, full, rtol=1e-10, atol=1e-12)
+    for name, diagnostic in json.loads(chunked.attrs["numerical_checks"]).items():
+        assert diagnostic == pytest.approx(
+            json.loads(full.attrs["numerical_checks"])[name], abs=1e-12
+        )
 
 
 @pytest.mark.parametrize("failure", ["probability", "score", "information", "normalization"])

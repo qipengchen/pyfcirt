@@ -315,7 +315,8 @@ def parse_item_design(text):
     rows, sides, traits = [], {}, set()
     for number, _, head, body in _declarations(text, sections=("traits",)):
         members = _members(body, number)
-        if len(head.split()) > 1 and head.split()[0] == "side":
+        directive = head.split(maxsplit=1)
+        if len(directive) == 2 and directive[0] == "side":
             _direction(head, members, number, {}, sides)
             continue
         names = _labels(head, number)

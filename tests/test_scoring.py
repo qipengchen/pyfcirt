@@ -406,8 +406,10 @@ def test_scoring_parameter_selection_prioritizes_explicit_then_fixed_then_poster
     assert scored.prepared.fixed_parameters.identical(fixed)
 
 
-def test_published_fixed_group_cannot_replace_runtime_calibration():
+def test_published_fixed_group_cannot_replace_runtime_calibration(monkeypatch):
     import pymc as pm
+
+    from pyfcirt.data import prepare
 
     reference = mixed_model()
     point = workflow_point(reference).drop_dims("person")
@@ -426,6 +428,11 @@ def test_published_fixed_group_cannot_replace_runtime_calibration():
         fc.parameter_point(scored, include_person=False).item_intercept, saved.item_intercept
     )
     np.testing.assert_array_equal(pm.draw(scored.build()["item_intercept"]), saved.item_intercept)
+
+    def duplicate_validation(*args, **kwargs):
+        pytest.fail("The prepared fixed snapshot has already been validated")
+
+    monkeypatch.setattr(prepare, "_calibration_values", duplicate_validation)
     replayed = fc.score_model(scored, responses)
     xr.testing.assert_identical(replayed.idata["fixed_parameters"].to_dataset(), saved)
 

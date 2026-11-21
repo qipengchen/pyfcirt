@@ -1812,6 +1812,10 @@ def test_replacing_regressions_keeps_other_owned_axes_in_a_mixed_grouped_model(f
 def test_exact_repeated_target_uses_last_line_and_only_validates_active_design(formulae):
     source, features = location_input()
     model = fc.Model(fc.PreparedInputs.from_inputs(source))
+    with pytest.raises(ValueError, match="Invalid regression formula syntax"):
+        model.add_regressions(
+            "items.location_free ~ x +\nitems.location_free ~ x", item_data=features
+        )
     model.add_regressions(
         "items.location_free ~ absent\nitems.location_free ~ x", item_data=features
     )
@@ -2042,8 +2046,20 @@ def test_removed_preparation_aliases_are_not_exported():
 @pytest.mark.parametrize("grouped", [False, True])
 @pytest.mark.parametrize("mapping", [False, True])
 def test_factory_person_id_forms_retain_group_and_formula_alignment(
-    formulae, person_id, grouped, mapping
+    formulae, person_id, grouped, mapping, monkeypatch
 ):
+    from pyfcirt.covariates import design as covariate_design
+    from pyfcirt.data import grouping
+
+    calls = []
+    align = grouping.align_rows
+
+    def count_alignment(data, keys, columns, context):
+        calls.append(columns)
+        return align(data, keys, columns, context)
+
+    monkeypatch.setattr(grouping, "align_rows", count_alignment)
+    monkeypatch.setattr(covariate_design, "align_rows", count_alignment)
     source = item_input(pd.DataFrame({"item_id": list("abc"), "trait": ["A"] * 3}))
     source = replace(
         source,
@@ -2070,6 +2086,8 @@ def test_factory_person_id_forms_retain_group_and_formula_alignment(
             regressions="theta ~ age", person_data=people, id_columns={"person": person_id}
         )
     state = fc.PreparedInputs.from_inputs(source, population=population, **arguments)
+    expected = [("person_id",), ("pid",)] if mapping else [("person_id",)]
+    assert calls == expected
     assert_array_equal(state.regressions[0].design.key_0, [1, 2, 3, 4])
     center = 15.0 if grouped else 25.0
     assert_allclose(

@@ -37,20 +37,26 @@ if TYPE_CHECKING:
 
 OBSERVED_STATUSES = frozenset({"answered", "missing", "refused", "not_administered"})
 SCHEDULE_STATUSES = (OBSERVED_STATUSES - {"answered"}) | {"scheduled"}
+UNIT_COLUMNS = {"fc": "block_id", "items": "item_id"}
+_RESPONSE_STATES = {
+    "observed": ("answered", OBSERVED_STATUSES),
+    "generate": ("scheduled", SCHEDULE_STATUSES),
+}
 _RESPONSE_FORMATS = frozenset({"rank", "pick", "mole", None})
+_RESPONSE_KEYS = ("person_id", "unit_id")
 _PAIR_POSITIONS = ("position_1", "position_2")
 _PAIR_FIELDS = (*_PAIR_POSITIONS, "pair_reversed")
 _CHANNEL_FORMATS = {
-    (True, "observed"): {
+    ("block_id", "observed"): {
         "block_long",
         "block_wide",
         "statement_rank",
         "comparison_long",
         "comparison_wide",
     },
-    (False, "observed"): {"item_long", "item_wide"},
-    (True, "generate"): {"block_schedule", "comparison_schedule"},
-    (False, "generate"): {"item_schedule"},
+    ("item_id", "observed"): {"item_long", "item_wide"},
+    ("block_id", "generate"): {"block_schedule", "comparison_schedule"},
+    ("item_id", "generate"): {"item_schedule"},
 }
 _FORMATS = frozenset().union(*_CHANNEL_FORMATS.values())
 
@@ -261,12 +267,11 @@ def _scale_record(value, *, unit, required=False):
     )
 
 
-def _model_declaration(value, *, fc):
+def _model_declaration(value, *, channel):
     """Accept only current declarations; scientific resolution belongs to layout."""
     from pyfcirt.data.design import _ModelDeclaration
     from pyfcirt.models.specification import MEASUREMENT_MODELS
 
-    channel = "fc" if fc else "items"
     names = tuple(name for name, model in MEASUREMENT_MODELS.items() if model.channel == channel)
     if isinstance(value, str | _ModelDeclaration):
         name = value if isinstance(value, str) else value.name
@@ -279,7 +284,7 @@ def _model_declaration(value, *, fc):
     return value
 
 
-def _measurement_options(values, *, fc, context):
+def _measurement_options(values, *, channel, context):
     """Normalize every declaration through the same constructors and response_format vocabulary."""
     from pyfcirt.data.design import _ModelDeclaration
 
@@ -288,7 +293,7 @@ def _measurement_options(values, *, fc, context):
         context = f"{context}, line {result['model'].line}"
     try:
         if "model" in result:
-            result["model"] = _model_declaration(result["model"], fc=fc)
+            result["model"] = _model_declaration(result["model"], channel=channel)
         if "response_format" in result and (
             result["response_format"] is not None
             and (
@@ -328,29 +333,39 @@ def _unit_override(value, *, fc, context):
     return dict(zip(fields, values, strict=False))
 
 
-def _unit_table(source, design, *, fc, defaults, options):
+def _design_row_options(columns, positions, *, channel, context):
+    """Require declarations repeated across the same unit to agree."""
     from pyfcirt.models.priors import PriorPreparation
 
-    if legacy := {"block_type", "item_type", "task"}.intersection(design.columns):
-        raise ValueError(
-            f"Unsupported legacy design columns {sorted(legacy)}; "
-            "use 'model' and 'response_format' columns"
+    result = {}
+    for field, values in columns.items():
+        declared = []
+        for value in values[positions]:
+            if value is Ellipsis:
+                continue
+            if _missing(value) and not (field == "response_format" and value is None):
+                continue
+            setting = _measurement_options({field: value}, channel=channel, context=context)
+            declared.append(setting[field])
+        if not declared:
+            continue
+        # Agreement includes identification, independently of parameter sharing.
+        comparable = (
+            [(type(value), PriorPreparation.key(vars(value))) for value in declared]
+            if field == "model"
+            else declared
         )
-    column = "block_id" if fc else "item_id"
-    resolved_defaults = _measurement_options(
-        dict(
-            model=source.model,
-            **(dict(response_format=source.response_format, scale=source.scale) if fc else {}),
-        ),
-        fc=fc,
-        context="Input defaults",
-    )
-    resolved_defaults.update(
-        _measurement_options(defaults, fc=fc, context="String wildcard defaults")
-    )
-    groups = design.groupby(column, sort=False, observed=True).indices
+        if any(value != comparable[0] for value in comparable[1:]):
+            raise ValueError(f"{context}: conflicting {field} declarations")
+        result[field] = declared[0]
+    return result
+
+
+def _unit_overrides(declarations, groups, *, channel):
+    """Validate override identities and normalize only explicitly supplied fields."""
+    column = UNIT_COLUMNS[channel]
+    fc = channel == "fc"
     overrides = {}
-    declarations = source.blocks if fc else source.items
     if isinstance(declarations, Mapping):
         entries = declarations.items()
     else:
@@ -366,125 +381,178 @@ def _unit_table(source, design, *, fc, defaults, options):
             raise ValueError(f"Duplicate override for {column} {unit!r}")
         context = f"{'Block' if fc else 'Item'} {unit!r}"
         overrides[unit] = _measurement_options(
-            _unit_override(override, fc=fc, context=context), fc=fc, context=context
+            _unit_override(override, fc=fc, context=context), channel=channel, context=context
         )
-    metadata = {
+    return overrides
+
+
+def _resolved_units(design, *, channel, defaults, wildcard, inline_options, overrides):
+    """Yield effective unit options in design order using the declared precedence."""
+    if legacy := {"block_type", "item_type", "task"}.intersection(design.columns):
+        raise ValueError(
+            f"Unsupported legacy design columns {sorted(legacy)}; "
+            "use 'model' and 'response_format' columns"
+        )
+    resolved_defaults = _measurement_options(defaults, channel=channel, context="Input defaults")
+    resolved_defaults.update(
+        _measurement_options(wildcard, channel=channel, context="String wildcard defaults")
+    )
+    column = UNIT_COLUMNS[channel]
+    groups = design.groupby(column, sort=False, observed=True).indices
+    overrides = _unit_overrides(overrides, groups, channel=channel)
+    design_options = {
         field: design[field].to_numpy()
-        for field in (("model", "response_format", "scale") if fc else ("model",))
+        for field in (("model", "response_format", "scale") if channel == "fc" else ("model",))
         if field in design
     }
-    rows = []
-    input_format = source.responses.format
-    comparison_input = isinstance(input_format, str) and input_format.startswith("comparison_")
     for unit in design[column].unique():
         positions = groups[unit]
-        inline = _measurement_options(options.get(unit, {}), fc=fc, context=f"Unit {unit!r}")
-        for field, values in metadata.items():
-            declared = []
-            for value in values[positions]:
-                if value is Ellipsis:
-                    continue
-                if _missing(value) and not (field == "response_format" and value is None):
-                    continue
-                setting = _measurement_options({field: value}, fc=fc, context=f"Unit {unit!r}")
-                declared.append(setting[field])
-            # Repeated declarations must agree completely, including identification.
-            # Parameter-sharing compatibility is resolved separately during ownership.
-            comparable = (
-                [(type(value), PriorPreparation.key(vars(value))) for value in declared]
-                if field == "model"
-                else declared
+        context = f"Unit {unit!r}"
+        inline = _measurement_options(
+            inline_options.get(unit, {}), channel=channel, context=context
+        )
+        inline.update(
+            _design_row_options(design_options, positions, channel=channel, context=context)
+        )
+        yield unit, len(positions), resolved_defaults | inline | overrides.get(unit, {})
+
+
+def _block_scale(unit, size, model, response_format, scale, *, beta, comparison_input):
+    """Normalize the scale of a block and validate its declared response support."""
+    if scale is None and response_format is None and not beta:
+        # Declare binary support even when only one category was observed.
+        scale = CategoryScale((0, 1))
+    record = _scale_record(scale, unit=unit, required=response_format is None)
+    if response_format is None:
+        if size != 2 and not (model.comparison_based and comparison_input):
+            raise ValueError("Raw block-level intensity responses require exactly two statements")
+        if not (model.comparison_based or model.graded_events):
+            raise ValueError(
+                f"{type(model).__name__} requires a rank, pick or mole response_format"
             )
-            if comparable and any(value != comparable[0] for value in comparable[1:]):
-                raise ValueError(f"Unit {unit!r}: conflicting {field} declarations")
-            if declared:
-                inline[field] = declared[0]
-        resolved = resolved_defaults | inline | overrides.get(unit, {})
-        model = resolved["model"]
+    if (
+        response_format is not None
+        and record["kind"] != "none"
+        and not (
+            record["kind"] == "category"
+            and record["categories"] == (0, 1)
+            and record["higher_prefers"] == "first"
+        )
+    ):
+        raise ValueError(
+            f"Unit {unit!r}: {response_format} requires scale omitted or "
+            "CategoryScale((0, 1), higher_prefers='first'); "
+            "use response_format=None for other preference scales"
+        )
+    return record
+
+
+def _item_scale(unit, categories):
+    """Normalize consecutive low-to-high item codes before building a unit record."""
+    categories = _categories(categories, f"Item {unit!r}")
+    if any(not isinstance(value, int) for value in categories) or any(
+        upper != lower + 1 for lower, upper in zip(categories[:-1], categories[1:], strict=True)
+    ):
+        raise ValueError(
+            f"Item {unit!r}: categories must be consecutive integers in increasing order"
+        )
+    return dict(kind="category", categories=categories, higher_prefers="first", labels=None)
+
+
+def _unit_record(unit, model, *, channel, response_format, size, scale, beta):
+    """Build one unit record from resolved and normalized declarations."""
+    continuous = scale["kind"] == "unit_interval"
+    if beta and not (continuous and response_format is None):
+        raise ValueError(
+            "Beta models require an explicit unit-interval scale and response_format=None"
+        )
+    if continuous and not beta:
+        raise ValueError(
+            f"{type(model).__name__} is categorical and cannot use a unit-interval scale"
+        )
+    if model.category_count is not None and len(scale["categories"]) != model.category_count:
+        raise ValueError(
+            f"{type(model).__name__} requires exactly {model.category_count} "
+            "complete item categories"
+        )
+    return dict(
+        channel=channel,
+        unit_id=unit,
+        model=model,
+        response_format=response_format,
+        size=size,
+        scale=scale,
+        likelihood_kind="rank" if model.augmented_ranking else "beta" if beta else "categorical",
+    )
+
+
+def _block_units(source, design, defaults, options):
+    """Build FC unit records from their effective declarations."""
+    input_format = source.responses.format
+    comparison_input = isinstance(input_format, str) and input_format.startswith("comparison_")
+    rows = []
+    for unit, size, resolved in _resolved_units(
+        design,
+        channel="fc",
+        defaults=dict(
+            model=source.model, response_format=source.response_format, scale=source.scale
+        ),
+        wildcard=defaults,
+        inline_options=options,
+        overrides=source.blocks,
+    ):
+        model, response_format = resolved["model"], resolved["response_format"]
         beta = getattr(model, "link", "").startswith("beta_")
-        size = len(positions) if fc else 1
-        if fc:
-            response_format = resolved["response_format"]
-            scale = resolved["scale"]
-            if scale is None and response_format is None and not beta:
-                # Declare binary support even when only one category was observed.
-                scale = CategoryScale((0, 1))
-            record = _scale_record(scale, unit=unit, required=response_format is None)
-            if response_format is None:
-                if size != 2 and not (model.comparison_based and comparison_input):
-                    raise ValueError(
-                        "Raw block-level intensity responses require exactly two statements"
-                    )
-                if not (model.comparison_based or model.graded_events):
-                    raise ValueError(
-                        f"{type(model).__name__} requires a rank, pick or mole response_format"
-                    )
-            if (
-                response_format is not None
-                and record["kind"] != "none"
-                and not (
-                    record["kind"] == "category"
-                    and record["categories"] == (0, 1)
-                    and record["higher_prefers"] == "first"
-                )
-            ):
-                raise ValueError(
-                    f"Unit {unit!r}: {response_format} requires scale omitted or "
-                    "CategoryScale((0, 1), higher_prefers='first'); "
-                    "use response_format=None for other preference scales"
-                )
-        else:
-            response_format = None
-            categories = _categories(
-                resolved.get("categories", source.categories), f"Item {unit!r}"
-            )
-            # Item codes run from low to high; text labels must be recoded by the user.
-            if any(not isinstance(value, int) for value in categories) or any(
-                upper != lower + 1
-                for lower, upper in zip(categories[:-1], categories[1:], strict=True)
-            ):
-                raise ValueError(
-                    f"Item {unit!r}: categories must be consecutive integers in increasing order"
-                )
-            record = dict(
-                kind="category",
-                categories=categories,
-                higher_prefers="first",
-                labels=None,
-            )
-        continuous = record["kind"] == "unit_interval"
-        if beta and not (continuous and response_format is None):
-            raise ValueError(
-                "Beta models require an explicit unit-interval scale and response_format=None"
-            )
-        if continuous and not beta:
-            raise ValueError(
-                f"{type(model).__name__} is categorical and cannot use a unit-interval scale"
-            )
-        if model.category_count is not None and len(record["categories"]) != model.category_count:
-            raise ValueError(
-                f"{type(model).__name__} requires exactly {model.category_count} "
-                "complete item categories"
-            )
+        scale = _block_scale(
+            unit,
+            size,
+            model,
+            response_format,
+            resolved["scale"],
+            beta=beta,
+            comparison_input=comparison_input,
+        )
         rows.append(
-            dict(
-                channel="fc" if fc else "items",
-                unit_id=unit,
-                model=model,
+            _unit_record(
+                unit,
+                model,
+                channel="fc",
                 response_format=response_format,
                 size=size,
-                scale=record,
-                likelihood_kind="rank"
-                if model.augmented_ranking
-                else "beta"
-                if beta
-                else "categorical",
+                scale=scale,
+                beta=beta,
             )
         )
     return _records(rows)
 
 
-def _wide_rows(response_table, *, fc):
+def _item_units(source, design, defaults, options):
+    """Build single-item records from their effective declarations."""
+    rows = []
+    for unit, _, resolved in _resolved_units(
+        design,
+        channel="items",
+        defaults=dict(model=source.model),
+        wildcard=defaults,
+        inline_options=options,
+        overrides=source.items,
+    ):
+        scale = _item_scale(unit, resolved.get("categories", source.categories))
+        rows.append(
+            _unit_record(
+                unit,
+                resolved["model"],
+                channel="items",
+                response_format=None,
+                size=1,
+                scale=scale,
+                beta=False,
+            )
+        )
+    return _records(rows)
+
+
+def _wide_rows(response_table, *, unit_column):
     frame = _frame(response_table.frame, (), "responses")
     person_column = response_table.person_id_column
     if person_column is None:
@@ -524,9 +592,8 @@ def _wide_rows(response_table, *, fc):
     else:
         if response_table.comparison_columns:
             raise ValueError("comparison_columns requires comparison_wide format")
-        field = "block_id" if fc else "item_id"
-        columns = identifiers(columns, f"responses.{field}")
-        targets = {field: columns}
+        columns = identifiers(columns, f"responses.{unit_column}")
+        targets = {unit_column: columns}
     return _records(
         {
             "person_id": np.repeat(np.asarray(persons, dtype=object), len(columns)),
@@ -539,9 +606,9 @@ def _wide_rows(response_table, *, fc):
     )
 
 
-def has_statement_rows(response_format):
-    return isinstance(response_format, str) and (
-        response_format == "statement_rank" or response_format.startswith("comparison_")
+def has_statement_rows(storage_format):
+    return isinstance(storage_format, str) and (
+        storage_format == "statement_rank" or storage_format.startswith("comparison_")
     )
 
 
@@ -567,22 +634,25 @@ def _member_positions(order, units, statements):
     return order.reindex(keys, fill_value=-1).to_numpy()
 
 
-def _source_rows(table, units, order, *, fc, purpose):
-    format = table.format
-    if not isinstance(format, str) or format not in _FORMATS:
-        raise ValueError(f"Unknown response format {format!r}; expected one of {sorted(_FORMATS)}")
-    if format not in _CHANNEL_FORMATS[fc, purpose]:
-        raise ValueError(f"{format!r} is incompatible with this channel and purpose={purpose!r}")
-    unit_column = "block_id" if fc else "item_id"
-    if format.endswith("_wide"):
-        rows = _wide_rows(table, fc=fc)
+def _source_rows(table, units, order, *, unit_column, purpose):
+    storage_format = table.format
+    if not isinstance(storage_format, str) or storage_format not in _FORMATS:
+        raise ValueError(
+            f"Unknown response format {storage_format!r}; expected one of {sorted(_FORMATS)}"
+        )
+    if storage_format not in _CHANNEL_FORMATS[unit_column, purpose]:
+        raise ValueError(
+            f"{storage_format!r} is incompatible with this channel and purpose={purpose!r}"
+        )
+    if storage_format.endswith("_wide"):
+        rows = _wide_rows(table, unit_column=unit_column)
     else:
         if table.person_id_column is not None or table.comparison_columns:
             raise ValueError("person_id_column and comparison_columns apply only to wide formats")
         required = ["person_id", unit_column]
-        if format.startswith("comparison"):
+        if storage_format.startswith("comparison"):
             required.extend(("statement_1", "statement_2"))
-        if format == "statement_rank":
+        if storage_format == "statement_rank":
             required.extend(("statement_id", "rank"))
         elif purpose == "observed":
             required.append("response")
@@ -595,7 +665,7 @@ def _source_rows(table, units, order, *, fc, purpose):
     if any(unit not in units for unit in rows[unit_column].unique()):
         raise ValueError("Responses contain unknown units")
     rows["unit_id"] = rows[unit_column].astype(object)
-    if format == "statement_rank":
+    if storage_format == "statement_rank":
         rows = _statement_ranks(rows, units, order)
     if purpose == "generate":
         if "response" in rows and any(not _missing(v) for v in rows.response):
@@ -612,15 +682,15 @@ def _statement_ranks(frame, units, order):
         if (positions < 0).any() or not positions.is_unique:
             raise ValueError(f"Person {person!r}, block {block!r}: duplicate or unknown statements")
         size = units[block]["size"]
-        order = [None] * size
+        preference = [None] * size
         for position, value in zip(positions, selected["rank"], strict=True):
             if _missing(value):
                 continue
             rank = _integer(value, "rank")
-            if not 1 <= rank <= size or order[rank - 1] is not None:
+            if not 1 <= rank <= size or preference[rank - 1] is not None:
                 raise ValueError(f"Person {person!r}, block {block!r}: invalid or tied ranks")
-            order[rank - 1] = position
-        record = dict(person_id=person, unit_id=block, response=tuple(order))
+            preference[rank - 1] = position
+        record = dict(person_id=person, unit_id=block, response=tuple(preference))
         if "status" in selected:
             states = tuple(dict.fromkeys(selected.status))
             if len(states) != 1:
@@ -682,24 +752,22 @@ def _normalize_scalar(value, context, *, continuous, categories):
     return value
 
 
-def normalize_administration(value, units, *, fc, purpose):
+def normalize_administration(value, units, *, unit_column, allowed_statuses):
     """Validate a labelled table on the canonical person/unit/status columns."""
-    column = "block_id" if fc else "item_id"
     if value is None:
         return None
-    frame = _frame(value, ("person_id", column, "status"), "administration")
-    for name in ("person_id", column):
+    frame = _frame(value, ("person_id", unit_column, "status"), "administration")
+    for name in ("person_id", unit_column):
         frame[name] = pd.Series(
             [identifier(v, f"administration.{name}") for v in frame[name]], dtype=object
         )
-    frame["unit_id"] = frame[column].astype(object)
+    frame["unit_id"] = frame[unit_column].astype(object)
     if any(unit not in units for unit in frame.unit_id.unique()):
         raise ValueError("Administration contains unknown units")
     if frame.duplicated(["person_id", "unit_id"]).any():
         raise ValueError("Duplicate person/unit administration entries")
-    allowed = SCHEDULE_STATUSES if purpose == "generate" else OBSERVED_STATUSES
-    if any(not isinstance(v, str) or v not in allowed for v in frame.status):
-        raise ValueError(f"Administration status must be one of {sorted(allowed)}")
+    if any(not isinstance(v, str) or v not in allowed_statuses for v in frame.status):
+        raise ValueError(f"Administration status must be one of {sorted(allowed_statuses)}")
     return frame[["person_id", "unit_id", "status"]]
 
 
@@ -723,6 +791,37 @@ def _ordered_pair(first, second):
     return np.minimum(first, second), np.maximum(first, second), first > second
 
 
+def _schedule_positions(source, constant, person, unit):
+    """Validate scheduled comparison keys and return canonical member positions."""
+    positions = np.full((len(unit), 2), -1, dtype=np.int64)
+    reversed_pair = np.zeros(len(unit), dtype=bool)
+    names = ["schedule_statement_1", "schedule_statement_2"]
+    if any(name not in source for name in names):
+        raise ValueError("A generation schedule requires both statement index arrays")
+    if any(source[name].dims != ("schedule",) for name in names):
+        raise ValueError("Schedule statement indices must use the 'schedule' row dimension")
+    first, second = (source[name].values for name in names)
+    if not (_integer_indices(first) and _integer_indices(second)):
+        raise ValueError("Schedule statement indices must be integers")
+    pair = (first != -1) | (second != -1)
+    if np.isin(unit[~pair], constant.pair_unit.values).any():
+        raise ValueError("Comparison models require scheduled statement pairs")
+    if pair.any():
+        block = constant.unit_block.values[unit[pair]]
+        if np.any(block < 0):
+            raise ValueError("Item schedules use statement indices -1")
+        order = frozen_statement_order(constant, indexed=True)
+        a, b = (_member_positions(order, block, side[pair]) for side in (first, second))
+        if np.any((a < 0) | (b < 0) | (a == b)):
+            raise ValueError("Schedule comparisons must name two distinct unit members")
+        left, right, reversed_pair[pair] = _ordered_pair(a - 1, b - 1)
+        positions[pair] = np.column_stack((left, right))
+    key = pd.MultiIndex.from_arrays((person, unit, *positions.T))
+    if not key.is_unique:
+        raise ValueError("The generation schedule contains duplicate events")
+    return positions, reversed_pair, pair
+
+
 def normalize_indexed_administration(source, constant, *, purpose):
     """Validate indexed administration and preserve its frozen entity positions."""
     generate = purpose == "generate"
@@ -744,41 +843,16 @@ def normalize_indexed_administration(source, constant, *, purpose):
         if not _integer_indices(positions) or np.any((positions < 0) | (positions >= count)):
             raise ValueError("administration contains an invalid person or unit index")
     person, unit = person.astype(np.intp, copy=False), unit.astype(np.intp, copy=False)
-    allowed = SCHEDULE_STATUSES if generate else OBSERVED_STATUSES
+    _, allowed = _RESPONSE_STATES[purpose]
     if not pd.Index(status).isin(allowed).all():
         raise ValueError(f"Administration status must be one of {sorted(allowed)}")
     columns = ["person", "unit", "status"]
     rows = pd.DataFrame(dict(person=person, unit=unit, status=status))
     if prefix == "schedule":
-        positions = np.full((len(rows), 2), -1, dtype=np.int64)
-        reversed_pair = np.zeros(len(rows), dtype=bool)
-        names = ["schedule_statement_1", "schedule_statement_2"]
-        if any(name not in source for name in names):
-            raise ValueError("A generation schedule requires both statement index arrays")
-        if any(source[name].dims != ("schedule",) for name in names):
-            raise ValueError("Schedule statement indices must use the 'schedule' row dimension")
-        first, second = (source[name].values for name in names)
-        if not (_integer_indices(first) and _integer_indices(second)):
-            raise ValueError("Schedule statement indices must be integers")
-        pair = (first != -1) | (second != -1)
-        if np.isin(unit[~pair], constant.pair_unit.values).any():
-            raise ValueError("Comparison models require scheduled statement pairs")
-        if pair.any():
-            block = constant.unit_block.values[unit[pair]]
-            if np.any(block < 0):
-                raise ValueError("Item schedules use statement indices -1")
-            order = frozen_statement_order(constant, indexed=True)
-            a, b = (_member_positions(order, block, side[pair]) for side in (first, second))
-            if np.any((a < 0) | (b < 0) | (a == b)):
-                raise ValueError("Schedule comparisons must name two distinct unit members")
-            left, right, reversed_pair[pair] = _ordered_pair(a - 1, b - 1)
-            positions[pair] = np.column_stack((left, right))
-        key = pd.MultiIndex.from_arrays((person, unit, *positions.T))
-        if not key.is_unique:
-            raise ValueError("The generation schedule contains duplicate events")
-        if generate and np.intersect1d(unit[pair], unit[~pair]).size:
-            raise ValueError("One unit cannot mix block events and scheduled comparisons")
+        positions, reversed_pair, pair = _schedule_positions(source, constant, person, unit)
         if generate:
+            if np.intersect1d(unit[pair], unit[~pair]).size:
+                raise ValueError("One unit cannot mix block events and scheduled comparisons")
             rows[list(_PAIR_POSITIONS)] = positions
             rows["pair_reversed"] = reversed_pair
     # Keep channel order from the frozen layout and row order within each channel.
@@ -884,48 +958,65 @@ def _response_values(rows, unit, *, label, reverse):
     return result
 
 
-def normalize_responses(
-    responses: ResponseTable | None,
-    units: Mapping,
-    *,
-    fc: bool,
-    purpose: str,
-    order: pd.Series | None = None,
-    administration: pd.DataFrame | None = None,
-) -> tuple[pd.DataFrame, pd.DataFrame, tuple]:
-    """Align responses to administration, including an omitted scoring channel."""
-    keys = ["person_id", "unit_id"]
-    if responses is None:
-        frame = pd.DataFrame(columns=keys)
-        comparison = False
-    else:
-        frame = _source_rows(responses, units, order, fc=fc, purpose=purpose)
-        comparison = responses.format.startswith("comparison")
-    active = "scheduled" if purpose == "generate" else "answered"
+def _reject_response_rows(frame, mask, message):
+    bad = np.flatnonzero(mask)
+    if len(bad):
+        row = frame.iloc[bad[0]]
+        raise ValueError(f"Person {row.person_id!r}, unit {row.unit_id!r}: {message}")
 
-    def reject(mask, message):
-        bad = np.flatnonzero(mask)
-        if len(bad):
-            row = frame.iloc[bad[0]]
-            raise ValueError(f"Person {row.person_id!r}, unit {row.unit_id!r}: {message}")
 
+def _canonical_response_rows(frame, order, *, comparison):
+    """Validate response keys after orienting comparison rows by member position."""
+    keys = list(_RESPONSE_KEYS)
     reverse = None
     if comparison:
         first = _member_positions(order, frame.unit_id, frame.statement_1)
         second = _member_positions(order, frame.unit_id, frame.statement_2)
-        reject(
+        _reject_response_rows(
+            frame,
             (first < 0) | (second < 0) | (first == second),
             "comparisons require two distinct member statements",
         )
         frame["position_1"], frame["position_2"], reverse = _ordered_pair(first - 1, second - 1)
         keys += _PAIR_POSITIONS
-    reject(frame.duplicated(keys).to_numpy(), "duplicate response, including reversed comparisons")
+    _reject_response_rows(
+        frame,
+        frame.duplicated(keys).to_numpy(),
+        "duplicate response, including reversed comparisons",
+    )
+    return keys, reverse
+
+
+def normalize_responses(
+    responses: ResponseTable | None,
+    units: Mapping,
+    *,
+    unit_column: str,
+    purpose: str,
+    order: pd.Series | None = None,
+    administration: pd.DataFrame | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame, tuple]:
+    """Align responses to administration, including an omitted scoring channel."""
+    if responses is None:
+        frame = pd.DataFrame(columns=_RESPONSE_KEYS)
+        comparison = False
+    else:
+        frame = _source_rows(responses, units, order, unit_column=unit_column, purpose=purpose)
+        comparison = responses.format.startswith("comparison")
+    active_status, allowed_statuses = _RESPONSE_STATES[purpose]
+    generate = purpose == "generate"
+    keys, reverse = _canonical_response_rows(frame, order, comparison=comparison)
     values = np.full(len(frame), None, dtype=object)
     for label, selected in frame.groupby("unit_id", sort=False).indices.items():
         unit = units[label]
-        if not comparison and fc and unit["response_format"] is None and unit["size"] != 2:
+        if (
+            not comparison
+            and unit_column == UNIT_COLUMNS["fc"]
+            and unit["response_format"] is None
+            and unit["size"] != 2
+        ):
             raise ValueError("block-level intensity responses require two statements")
-        if purpose == "generate":
+        if generate:
             continue
         values[selected] = _response_values(
             frame.iloc[selected],
@@ -933,36 +1024,68 @@ def normalize_responses(
             label=label,
             reverse=None if reverse is None else reverse[selected],
         )
-    present = pd.notna(values)
+    states, parents = _response_statuses(
+        frame,
+        pd.notna(values),
+        administration,
+        active_status=active_status,
+        allowed_statuses=allowed_statuses,
+    )
+    normalized = frame[keys].reset_index(drop=True).assign(response=values, status=states)
+    if comparison:
+        normalized["pair_reversed"] = reverse
+    administration, parents = _complete_administration(
+        normalized, administration, parents, active_status=active_status
+    )
+    normalized["administration_index"] = parents
+    people = tuple(
+        dict.fromkeys((*normalized.person_id.unique(), *administration.person_id.unique()))
+    )
+    return normalized, administration, people
+
+
+def _response_statuses(frame, present, administration, *, active_status, allowed_statuses):
+    """Resolve row status and link responses to explicit administration when supplied."""
     default = (
         np.where(present, "answered", "missing")
-        if purpose == "observed"
+        if active_status == "answered"
         else np.full(len(frame), "scheduled", dtype=object)
     )
+    parents = None
     if administration is not None:
         admin_keys = pd.MultiIndex.from_frame(administration[["person_id", "unit_id"]])
         row_keys = pd.MultiIndex.from_frame(frame[["person_id", "unit_id"]])
         parents = admin_keys.get_indexer(row_keys)
-        reject(parents < 0, "response is absent from administration")
+        _reject_response_rows(frame, parents < 0, "response is absent from administration")
         inherited = administration.status.to_numpy()[parents]
-        default = np.where(inherited == active, default, inherited)
+        default = np.where(inherited == active_status, default, inherited)
     states = frame.status.to_numpy() if "status" in frame else default
-    allowed = SCHEDULE_STATUSES if purpose == "generate" else OBSERVED_STATUSES
-    reject(~pd.Series(states).isin(allowed).to_numpy(), f"status must be one of {sorted(allowed)}")
-    if purpose == "observed":
-        reject((states == active) != present, "response status conflicts with response presence")
+    _reject_response_rows(
+        frame,
+        ~pd.Series(states).isin(allowed_statuses).to_numpy(),
+        f"status must be one of {sorted(allowed_statuses)}",
+    )
+    if active_status == "answered":
+        _reject_response_rows(
+            frame,
+            (states == active_status) != present,
+            "response status conflicts with response presence",
+        )
     if administration is not None:
-        reject(
-            (inherited != active) & (states != inherited),
+        _reject_response_rows(
+            frame,
+            (inherited != active_status) & (states != inherited),
             "response status conflicts with administration",
         )
-    normalized = frame[keys].reset_index(drop=True).assign(response=values, status=states)
-    if comparison:
-        normalized["pair_reversed"] = reverse
+    return states, parents
+
+
+def _complete_administration(normalized, administration, parents, *, active_status):
+    """Infer missing administration or check that every declared active unit has a row."""
     if administration is None:
         # Active answers dominate genuine nonresponse states. Without any active
         # answer, all states in a person/unit must agree.
-        names = [active, *sorted(OBSERVED_STATUSES - {active})]
+        names = [active_status, *sorted(OBSERVED_STATUSES - {active_status})]
         compact = normalized[["person_id", "unit_id"]].copy()
         compact["_status"] = normalized.status.map({name: i for i, name in enumerate(names)})
         group = compact.groupby(["person_id", "unit_id"], sort=False)
@@ -975,19 +1098,15 @@ def normalize_responses(
         administration = administration.astype(object)
     else:
         has_response = np.zeros(len(administration), dtype=bool)
-        has_response[parents[states == active]] = True
-        missing = (administration.status.to_numpy() == active) & ~has_response
+        has_response[parents[normalized.status.to_numpy() == active_status]] = True
+        missing = (administration.status.to_numpy() == active_status) & ~has_response
         if missing.any():
             row = administration.iloc[np.flatnonzero(missing)[0]]
             raise ValueError(
                 f"Active administration entry {(row.person_id, row.unit_id)!r} "
                 "has no response/schedule"
             )
-    normalized["administration_index"] = parents
-    people = tuple(
-        dict.fromkeys((*normalized.person_id.unique(), *administration.person_id.unique()))
-    )
-    return normalized, administration, people
+    return administration, parents
 
 
 def normalize_channel(source: FCInput | ItemInput, *, purpose: str) -> NormalizedChannel:
@@ -996,7 +1115,13 @@ def normalize_channel(source: FCInput | ItemInput, *, purpose: str) -> Normalize
         raise TypeError("responses must be ResponseTable")
     fc = isinstance(source, FCInput)
     design, defaults, options = _design_table(source, fc=fc)
-    units = _unit_table(source, design, fc=fc, defaults=defaults, options=options)
+    if fc:
+        units = _block_units(source, design, defaults, options)
+        channel = "fc"
+    else:
+        units = _item_units(source, design, defaults, options)
+        channel = "items"
+    unit_column = UNIT_COLUMNS[channel]
     by_unit = units.set_index("unit_id").to_dict("index")
     order = (
         _statement_order(design.block_id, design.statement_id, design.position)
@@ -1006,11 +1131,14 @@ def normalize_channel(source: FCInput | ItemInput, *, purpose: str) -> Normalize
     responses, administration, people = normalize_responses(
         source.responses,
         by_unit,
-        fc=fc,
+        unit_column=unit_column,
         purpose=purpose,
         order=order,
         administration=normalize_administration(
-            source.administration, by_unit, fc=fc, purpose=purpose
+            source.administration,
+            by_unit,
+            unit_column=unit_column,
+            allowed_statuses=_RESPONSE_STATES[purpose][1],
         ),
     )
     tables = dict(
@@ -1030,7 +1158,7 @@ def normalize_channel(source: FCInput | ItemInput, *, purpose: str) -> Normalize
             raise ValueError("statement_features contains duplicate or unknown statements")
         tables["statement_features"] = features
     return NormalizedChannel(
-        channel="fc" if fc else "items",
+        channel=channel,
         tables=tables,
         input_format=source.responses.format,
         people=people,
@@ -1245,8 +1373,16 @@ def _unit_events(unit, rows, *, specification, generate, encoding):
 
     y, edges = None, None
     if not generate:
-        if scale["kind"] == "unit_interval":
+        if "native_response" in rows and rows.native_response.iat[0]:
+            # Each generated unit uses one support. Direct item and comparison
+            # outcomes are already expressed on that native support.
+            y = values.astype(np.float64 if scale["kind"] == "unit_interval" else np.int64)
+        elif scale["kind"] == "unit_interval":
             y = values.astype(np.float64)
+            if scale["higher_prefers"] == "second":
+                y = 1 - y
+                if np.any((y <= 0) | (y >= 1)):
+                    raise ValueError("Continuous scale reversal cannot be represented inside (0,1)")
         else:
             codes = catalog.get("codes")
             lookup = catalog["labels"].index if codes is None else codes.__getitem__
@@ -1440,11 +1576,6 @@ def _encode_batch(constant, unit, catalog, events, admin_people, *, index, encod
                 (obs_dim, position_dim, f"{name}_position_aux"),
             )
     y = events.y
-    if y is not None and unit["scale"]["kind"] == "unit_interval":
-        if unit["scale"]["higher_prefers"] == "second":
-            y = 1 - y
-            if np.any((y <= 0) | (y >= 1)):
-                raise ValueError("Continuous scale reversal cannot be represented inside (0,1)")
     record["slots"] = _batch_slots(
         constant, arrays, record, measurement, pairs, item_traits, cut_rows, people
     )
@@ -1584,10 +1715,14 @@ def encode_batches(
     people, units = (administration[col].to_numpy(dtype=np.int64) for col in ("person", "unit"))
     parents = responses.administration_index.to_numpy(dtype=np.int64)
     status = responses.status.to_numpy(dtype=str)
-    active = status == ("scheduled" if generate else "answered")
+    active_status, _ = _RESPONSE_STATES[purpose]
+    active = status == active_status
     positions = responses[list(_PAIR_POSITIONS)].to_numpy(dtype=np.int64)
     response_units = units[parents]
-    events = responses.loc[active, ["response", *_PAIR_POSITIONS]].assign(
+    fields = ["response", *_PAIR_POSITIONS]
+    if "native_response" in responses:
+        fields.append("native_response")
+    events = responses.loc[active, fields].assign(
         unit=response_units[active],
         parent_index=parents[active],
         source_row=np.flatnonzero(active),
@@ -1648,7 +1783,7 @@ def encode_batches(
             **batch_coords,
         },
     )
-    pieces = [values for _, values, _, _ in batches]
+    pieces = [arrays for _, arrays, _, _ in batches]
     pieces.append(_observation_layout(constant, observed, batches))
     observation_variables = tuple(
         dict.fromkeys(name for piece in pieces for name in piece.variables)
@@ -1775,7 +1910,7 @@ def observed_response_view(prepared, unit, representation, encoding):
 
 
 def generated_rows(prepared: PreparedInputs, values: xr.Dataset):
-    """Decode native outcomes on the prepared administration and entity positions."""
+    """Keep direct native outcomes and expand ranking events to their recorded comparisons."""
     constant, source = prepared.constant_data, prepared.observed_data
     administration = pd.DataFrame(
         dict(
@@ -1828,38 +1963,39 @@ def generated_rows(prepared: PreparedInputs, values: xr.Dataset):
             value.values, batch.administration_index, batch.pair_index, strict=True
         ):
             if continuous:
-                response = float(raw)
-                if not 0 < response < 1:
+                native = response = float(raw)
+                if not 0 < native < 1:
                     raise ValueError(f"{name!r} contains a response outside (0,1)")
                 if scale["higher_prefers"] == "second":
                     response = 1 - response
                     if not 0 < response < 1:
                         raise ValueError("Decoded continuous response is outside (0,1)")
             else:
-                code = _integer(raw, f"{name!r} generated category")
-                if not 0 <= code < len(labels):
+                native = _integer(raw, f"{name!r} generated category")
+                if not 0 <= native < len(labels):
                     raise ValueError(f"{name!r} contains a category outside frozen support")
-                response = labels[code]
             if channel == "items":
-                rows.append((parent, response, -1, -1, False, "answered"))
+                rows.append((parent, native, -1, -1, False, "answered", True))
                 continue
-            if events.orders is not None:
-                if code not in by_code:
-                    by_code[code] = tuple(
-                        _known_pairs(response, events.response_format, pairs=pair_positions)
-                    )
-                known = by_code[code]
-            else:
+            direct = events.orders is None and comparison >= 0
+            if events.orders is None:
                 a, b = pair_catalog[comparison] if comparison >= 0 else (0, 1)
-                known = [(a, b, response)]
-            for a, b, response in known:
+                # Block-level graded MGPPM still needs its category label.
+                known = ((a, b, native if direct else labels[native]),)
+            else:
+                if native not in by_code:
+                    by_code[native] = tuple(
+                        _known_pairs(labels[native], events.response_format, pairs=pair_positions)
+                    )
+                known = by_code[native]
+            for a, b, outcome in known:
                 pair = parent, members[a], members[b]
                 if pair in reserved_pairs:
                     continue
                 reverse = pair in reversed_pairs
                 if reverse and continuous and not 0 < 1 - response < 1:
                     raise ValueError("Decoded reversed response is outside (0,1)")
-                rows.append((parent, response, a, b, reverse, "answered"))
+                rows.append((parent, outcome, a, b, reverse, "answered", direct))
 
     # Keep recorded nonresponses separate from the newly generated likelihood rows.
     positions = np.full((np.count_nonzero(inactive), 2), -1, dtype=np.int64)
@@ -1876,9 +2012,10 @@ def generated_rows(prepared: PreparedInputs, values: xr.Dataset):
             *positions.T,
             reversed_rows[inactive],
             status[inactive],
+            repeat(False, len(positions)),
             strict=True,
         )
     )
     return administration, _records(
-        rows, ("administration_index", "response", *_PAIR_FIELDS, "status")
+        rows, ("administration_index", "response", *_PAIR_FIELDS, "status", "native_response")
     )

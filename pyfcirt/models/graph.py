@@ -79,7 +79,8 @@ class ParameterFactory:
                     dependencies.append(block.scale_kind)
                 if block.bounds is not None:
                     dependencies.append(block.bounds[0])
-                self.build(dependencies, regressions=regressions)
+                if dependencies:
+                    self.build(dependencies, regressions=regressions)
                 for entries, draw in self._entry_updates(block, regressions):
                     value = pt.set_subtensor(value[entries], draw.ravel())
             self.bind(kind, value.reshape(layout.shape))
@@ -103,21 +104,19 @@ class ParameterFactory:
         elif block.bounds is not None:
             yield entries[block.free_flat], self._bounded_draw(block)
         elif block.scale_kind is not None:
-            scale = (
-                pt.reshape(self.bindings[block.scale_kind], (-1,))[block.scale_entry_index]
-                ** block.scale_power
-            )
+            scale_source = self.bindings[block.scale_kind].ravel()
+            scale = scale_source[block.scale_entry_index] ** block.scale_power
             shape = block.prior_shapes[block.prior_role]
-            raw = self.scaled(
+            flat_scale = pt.broadcast_to(scale, block.shape).ravel()
+            free_scale = flat_scale[block.free_flat].reshape(shape)
+            draw = self.scaled(
                 name,
                 block.priors[block.prior_role],
-                pt.reshape(
-                    pt.reshape(pt.broadcast_to(scale, block.shape), (-1,))[block.free_flat], shape
-                ),
+                free_scale,
                 shape=shape,
                 noncentered=block.noncentered,
             )
-            yield entries[block.free_flat], raw
+            yield entries[block.free_flat], draw
         else:
             entries = entries[block.free_flat]
             for selected, draw in self._free_draws(block, regressions):
@@ -147,22 +146,25 @@ class ParameterFactory:
         multiple = layout.prior_role_index is not None
         for role, positions in layout.prior_groups:
             binding = None if regressions is None else regressions.get((layout.binding_id, role))
-            name = f"_parameter_{layout.binding_id}{'_' + role if multiple else ''}_raw"
             if binding is not None:
                 yield (
                     positions,
                     cls.regression(layout, role=role, size=len(positions), binding=binding),
                 )
                 continue
+            name = f"_parameter_{layout.binding_id}{'_' + role if multiple else ''}"
             declaration = layout.priors[role]
             shape = layout.prior_shapes[role]
             if layout.ordered:
-                draw = cls.ordered(name, declaration, rows=shape[0], count=layout.shape[-1])
+                draw = cls.ordered(
+                    f"{name}_raw", declaration, rows=shape[0], count=layout.shape[-1]
+                )
             else:
                 noncentered = layout.noncentered and role not in layout.centered_roles
                 if layout.noncentered:
                     mode = "noncentered" if noncentered else "centered"
-                    name = f"{name[:-4]}_{mode}_raw"
+                    name = f"{name}_{mode}"
+                name = f"{name}_raw"
                 if noncentered:
                     node = declaration.owner
                     mean, scale = node.op.dist_params(node)
@@ -377,8 +379,8 @@ def response_rv(
         response_kernel = kernel
     output = wrap_jax(response_kernel, allow_eval=False)(*arguments, **options)
     if beta:
-        alpha, shape = (check_parameters(value, *checks, msg=message) for value in output)
-        distribution = pm.Beta.dist(alpha=alpha, beta=shape, size=size)
+        alpha, beta_shape = (check_parameters(value, *checks, msg=message) for value in output)
+        distribution = pm.Beta.dist(alpha=alpha, beta=beta_shape, size=size)
     else:
         logs = check_parameters(output, *checks, msg=message) if checks else output
         distribution = StableCategorical.dist(logs, size=size)

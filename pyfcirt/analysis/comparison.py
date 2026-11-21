@@ -12,16 +12,20 @@ from jax.scipy.special import logsumexp
 from pyfcirt.common.validation import has_labelled_axes
 
 
-def _validated_log_likelihood(values: xr.DataArray) -> xr.DataArray:
+def _validated_log_likelihood(values: xr.DataArray) -> tuple[xr.DataArray, jnp.ndarray]:
     if not isinstance(values, xr.DataArray) or set(values.dims) != {"chain", "draw", "obs"}:
         raise ValueError("log_likelihood must have chain, draw and obs dimensions")
     if not has_labelled_axes(values, values.dims):
         raise ValueError("Log-likelihood axes must have nonempty unique labels")
-    if values.dtype.kind not in "iuf" or not bool(jnp.isfinite(values.values).all()):
+    if values.dtype.kind not in "iuf":
+        raise ValueError("Log likelihood must be finite real values; no states are dropped")
+    labels = values.transpose("chain", "draw", "obs")
+    logp = jnp.asarray(labels.values, dtype=float)
+    if not bool(jnp.isfinite(logp).all()):
         raise ValueError("Log likelihood must be finite real values; no states are dropped")
     if values.attrs.get("inference_method", "mcmc") != "mcmc":
         raise NotImplementedError("Model comparison currently supports MCMC log likelihood")
-    return values.transpose("chain", "draw", "obs")
+    return labels, logp
 
 
 def waic(log_likelihood: xr.DataArray) -> xr.Dataset:
@@ -30,11 +34,10 @@ def waic(log_likelihood: xr.DataArray) -> xr.Dataset:
     ArviZ Stats 1.3.3 has no public WAIC implementation. This formula consumes
     the existing observation factors and does not establish model comparability.
     """
-    logp = _validated_log_likelihood(log_likelihood)
+    logp, values = _validated_log_likelihood(log_likelihood)
     count = logp.sizes["chain"] * logp.sizes["draw"]
     if count < 2:
         raise ValueError("WAIC requires at least two posterior states")
-    values = jnp.asarray(logp.values, dtype=float)
     lppd = logsumexp(values, axis=(0, 1)) - jnp.log(count)
     penalty = values.var(axis=(0, 1), ddof=0)
     pointwise = lppd - penalty
@@ -79,10 +82,10 @@ def waic(log_likelihood: xr.DataArray) -> xr.Dataset:
 
 def dic(log_likelihood: xr.DataArray) -> xr.Dataset:
     """Calculate pV = Var_draw(D)/2 within each chain, then average over chains."""
-    logp = _validated_log_likelihood(log_likelihood)
+    logp, values = _validated_log_likelihood(log_likelihood)
     if logp.sizes["draw"] < 2:
         raise ValueError("Chainwise pV DIC requires at least two draws per chain")
-    deviance = -2 * jnp.asarray(logp.values, dtype=float).sum(axis=-1)
+    deviance = -2 * values.sum(axis=-1)
     mean = deviance.mean(axis=1)
     penalty = deviance.var(axis=1, ddof=1) / 2
     values = {
