@@ -18,7 +18,7 @@ and item models whenever they have the same interpretation:
 | `regression_coefficient` | `regression_coefficient_id` | Entries link to the target, formula term and any applicable trait or group. |
 | `theta` | `person`, `trait` | Person trait values. |
 | `population_mean` | `population_group`, `trait` | Population trait means. |
-| `trait_correlation` | `trait`, `trait_aux`; also `population_group` if group-specific | Residual trait correlation. |
+| `trait_correlation` | `trait`, `trait_aux`; also `population_group` if group-specific | Residual trait correlation. Grouped models can opt into one shared matrix with `theta_correlation="shared"`. |
 
 Only quantities applicable to the model are present. Entirely fixed quantities
 can be absent from the posterior; consult `parameter_data/<kind>`. Sampled
@@ -139,3 +139,35 @@ original runtime approximation.
 
 See [Saving and reusing results](results.md) for the full workflow and
 [data preparation](data.md) for the originating records.
+
+## Respondent-level measurement regressions
+
+A measurement parameter keeps its existing canonical entry and fixed-value
+policy. The ordinary prior or measurement-level regression supplies its
+baseline. Respondent-level terms supply deviations on the target's link scale.
+The prepared binding identifies the measurement entry, the coefficient pool
+for that entry, and the aligned respondent design row for each observation.
+Fixed entries keep the declared value and have no respondent effect. The
+measurement family continues to own parameter constraints and response laws.
+
+The preparation layer resolves targets through the existing measurement
+relations and fits the respondent formula through Formulae. A frozen encoder
+and coefficient identities survive a change in respondent cohort. Measurement-
+and respondent-level declarations update their respective components
+atomically. The graph gathers their values for the requested observations.
+It saves canonical baselines and coefficient draws without materializing a
+respondent-by-measurement posterior array.
+
+An ordinary categorical term is zero at its encoded reference. A PairwiseL1
+term uses a sum-to-zero group basis and one joint contrast event per pool.
+Each group, including the treatment reference, has an offset on that basis.
+One pool may serve multiple free parameters when sharing is explicit. An
+ordered cutpoint vector receives a common shift. Positive scales and signed
+half-axis locations receive multiplicative effects via the log link.
+
+The fitted-unit coefficients are obtained from the saved coefficient draws
+and any retained hierarchical scales using their prepared pool indices.
+Explicit coefficient priors and joint contrast priors use fitted units
+directly. The analysis uses the frozen encoder to compare two profiles at
+the same baseline draw, then reports the difference on the parameter scale.
+See [differential item functioning](dif.md) for the public methods.

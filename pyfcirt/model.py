@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Literal, Self
 from uuid import uuid4
 
 import numpy as np
@@ -417,11 +417,66 @@ class Model:
             prepare_regressions, declarations, qualified_priors=qualified_priors
         )
 
-    def set_priors(self, priors: Mapping[str, TensorVariable]) -> None:
-        """Replace selected ordinary priors and any regressions for those roles.
+    def add_dif_terms(
+        self,
+        targets: str | Sequence[str],
+        *,
+        person_data: pd.DataFrame,
+        formula: str | None = None,
+        groups: str | Sequence[str | tuple[str, ...]] = (),
+        id: str = "person_id",
+        pooling: Literal["unit", "shared"] = "unit",
+        prior: Literal["hierarchical", "pairwise_l1", "truncated_l1"] = "hierarchical",
+        prior_options: Mapping | None = None,
+        overrides: Mapping | None = None,
+    ) -> None:
+        """Add respondent-level deviations to selected free measurement parameters.
 
-        The latest definition wins; unrelated parameter roles retain their priors
-        and regression declarations. Complete updates before fitting or fixing.
+        Provide one row per respondent keyed by `id`. Call after preparation and
+        before fitting or fixing parameters.
+        """
+        from pyfcirt.covariates.specification import dif_declarations
+        from pyfcirt.data.regressions import prepare_regressions
+
+        declarations, options = dif_declarations(
+            targets,
+            person_data,
+            formula=formula,
+            groups=groups,
+            id_column=id,
+            pooling=pooling,
+            prior=prior,
+            prior_options=prior_options,
+            overrides=overrides,
+        )
+        self._update_parameters(
+            prepare_regressions, declarations, person_effects=True, dif_options=options
+        )
+
+    def dif_summary(
+        self,
+        contrasts: Mapping | None = None,
+        *,
+        at: Mapping | None = None,
+        prob: float = 0.95,
+        significant_only: bool = False,
+    ) -> pd.DataFrame:
+        """Summarize posterior contrasts on the original measurement parameter scale.
+
+        Each row identifies a target and predictor contrast and reports the mean
+        difference, equal-tailed interval and whether it excludes zero.
+        """
+        from pyfcirt.analysis.dif import summarize_dif
+
+        return summarize_dif(
+            self, contrasts=contrasts, at=at, prob=prob, significant_only=significant_only
+        )
+
+    def set_priors(self, priors: Mapping[str, TensorVariable]) -> None:
+        """Replace selected ordinary priors or baseline regressions.
+
+        Unrelated roles and respondent-level DIF terms retain their declarations.
+        Complete updates before fitting or fixing.
         """
         from pyfcirt.data.regressions import prepare_priors
 

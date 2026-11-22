@@ -16,8 +16,9 @@ import pandas as pd
 import pymc as pm
 from jax import enable_x64
 
-from pyfcirt.common.validation import identifier
-from pyfcirt.covariates.design import fit_design
+from pyfcirt.common.validation import align_rows, identifier
+from pyfcirt.covariates.design import fit_design, pairwise_design
+from pyfcirt.covariates.pairwise import PairwiseL1
 from pyfcirt.covariates.specification import Regression, validate_formula
 from pyfcirt.data.arrays import LayoutBuilder, merge_prepared
 from pyfcirt.data.constraints import (
@@ -31,6 +32,7 @@ from pyfcirt.data.grouping import theta_target_indices
 from pyfcirt.models.priors import PriorPreparation, prior_shape, require_proper, subset_prior
 from pyfcirt.models.specification import (
     conditional_defaults,
+    person_effect_defaults,
     regression_defaults,
 )
 
@@ -38,7 +40,7 @@ if TYPE_CHECKING:
     from pyfcirt.data.prepare import PreparedInputs
 
 
-def _active_updates(constant, declarations, *, regression=False):
+def _active_updates(constant, declarations, *, regression=False, person_effects=False):
     """Resolve each selector once against the candidate; the last owner wins."""
     scopes = {"fc": [], "items": [], "population": [(constant.attrs["population"], None)]}
     if any(
@@ -82,7 +84,8 @@ def _active_updates(constant, declarations, *, regression=False):
                 )
                 if layout["key"] != selector and not alias:
                     continue
-                if regression and not layout["regression"]:
+                person_target = person_effects and layout.get("person_link") is not None
+                if regression and not (layout["regression"] or person_target):
                     raise ValueError(f"Unsupported parameter target: {target!r}")
                 roles = layout["prior_groups"]
                 if regression and layout.get("shared") and roles:
@@ -104,7 +107,9 @@ def _active_updates(constant, declarations, *, regression=False):
         for entry in resolved[target]:
             layout, role = entry[2:]
             binding_id = -1 if layout is None else layout["binding_id"]
-            binding_role = binding_id, role
+            binding_role = (binding_id, role)
+            if person_effects:
+                binding_role += (declaration.formula.strip(),)
             if binding_role not in claimed:
                 selected.append(entry)
                 claimed.add(binding_role)
@@ -143,23 +148,30 @@ def _canonical_pairs(spec, entities):
     return replace(spec, data=frame)
 
 
-def _item_targets(constant, selected, key):
+def _item_targets(constant, selected, key, *, person_effects=False, shared=False):
     entities, pools = {}, {}
     defaults, targets, pool_rows, labels = [], [], [], []
     for scope, owner, layout, role in selected:
-        conditional = conditional_defaults(scope["specification"], role)
+        spec = scope["specification"]
+        conditional = (
+            person_effect_defaults(spec, role, link=layout.get("person_link"))
+            if person_effects
+            else conditional_defaults(spec, role)
+        )
         kind = layout["kind"]
-        scale = "log_loading" if kind == "loading" and conditional["link"] == "log" else "identity"
+        link = conditional["link"]
+        scale = "log_loading" if kind == "loading" and link == "log" else link
         shape = tuple(layout["shape"])
         free = constant[layout["free_flat"]].values
         ordered = layout["ordered"]
         if ordered and len(free) != int(np.prod(shape)):
             raise NotImplementedError("Regression requires complete free ordered cutpoint vectors")
-        local_keys = (
-            _pair_keys(constant, scope)
-            if key == "cutpoints"
-            else [(label,) for label in constant[layout["dims"][0]].values]
-        )
+        if not person_effects:
+            local_keys = (
+                _pair_keys(constant, scope)
+                if key == "cutpoints"
+                else [(label,) for label in constant[layout["dims"][0]].values]
+            )
         positions = np.take(free, layout["prior_groups"][role])
         if ordered:
             positions = np.unique(positions // shape[-1])
@@ -167,17 +179,26 @@ def _item_targets(constant, selected, key):
         dimensions = shape[:-1] if ordered else shape
         count = shape[-1] if key == "cutpoints" else None
         trait_axis = layout["dims"].index("trait") if "trait" in layout["dims"] else None
-        coordinates = zip(*np.unravel_index(positions, dimensions), strict=True)
+        coordinates = (
+            zip(*np.unravel_index(positions, dimensions), strict=True)
+            if dimensions
+            else [()] * len(positions)
+        )
         for index, position in enumerate(coordinates):
             trait = position[trait_axis] if trait_axis is not None else -1
-            signature = owner["name"], key, role, trait, count
+            if person_effects:
+                signature = (
+                    (kind, role, link) if shared else (layout["binding_id"], positions[index])
+                )
+                row = 0
+            else:
+                signature = owner["name"], key, role, trait, count
+                row = entities.setdefault(local_keys[position[0]], len(entities))
             if signature not in pools:
                 pools[signature] = len(pools)
                 defaults.append((scope["specification"], role))
                 pool_rows.append(set())
                 labels.append((kind, scale, trait))
-            entity = local_keys[position[0]]
-            row = entities.setdefault(entity, len(entities))
             pool = pools[signature]
             rows[index], indices[index] = row, pool
             pool_rows[pool].add(row)
@@ -194,7 +215,9 @@ def _rank_check(matrix, label):
         raise ValueError(f"{label}: regression design columns are linearly dependent")
 
 
-def _resolve_coefficients(spec, design, pool_defaults, qualified_priors=None):
+def _resolve_coefficients(
+    spec, design, pool_defaults, qualified_priors=None, *, person_effects=False
+):
     qualified_priors = qualified_priors or {}
     if unknown := qualified_priors.keys() - {type(model).__name__ for model, _ in pool_defaults}:
         raise ValueError(f"No applicable free parameter targets for models: {sorted(unknown)}")
@@ -202,7 +225,7 @@ def _resolve_coefficients(spec, design, pool_defaults, qualified_priors=None):
     for family, overrides in qualified_priors.items():
         if unknown := overrides.keys() - {*terms, "common"}:
             raise ValueError(f"{family}: priors for unknown design columns: {sorted(unknown)}")
-    native, roles, registered = [], [], {}
+    native, roles, standardized, registered = [], [], [], {}
 
     def register(prior, *, term=None, family=None):
         # A non-scalar model override describes only that model's pools.
@@ -214,8 +237,10 @@ def _resolve_coefficients(spec, design, pool_defaults, qualified_priors=None):
         return registered[key]
 
     for model, role in pool_defaults:
-        intercept, _, slope_sigma = regression_defaults(model, role)
-        row = []
+        intercept, _, slope_sigma = (
+            (None, None, 1.0) if person_effects else regression_defaults(model, role)
+        )
+        row, automatic = [], []
         family = type(model).__name__
         by_model = qualified_priors.get(family, {})
         for term in terms:
@@ -224,6 +249,7 @@ def _resolve_coefficients(spec, design, pool_defaults, qualified_priors=None):
             model_override = prior is not None
             if prior is None:
                 prior = spec.priors.get(term, spec.priors.get(fallback))
+            automatic.append(person_effects and prior is None)
             if prior is None:
                 if term == "Intercept":
                     prior = intercept
@@ -241,7 +267,8 @@ def _resolve_coefficients(spec, design, pool_defaults, qualified_priors=None):
                 raise NotImplementedError("Noncentered coefficients require a native Normal prior")
             row.append(register(prior, term=str(term), family=family if model_override else None))
         roles.append(row)
-    return native, np.asarray(roles, dtype=object), register
+        standardized.append(automatic)
+    return native, np.asarray(roles, dtype=object), register, np.asarray(standardized)
 
 
 def _coefficient_layout(
@@ -255,11 +282,20 @@ def _coefficient_layout(
     *,
     theta=False,
     qualified_priors=None,
+    person_effects=False,
+    joint_prior=None,
 ):
     terms = list(design.term.values)
     pool_dim, term_dim = f"{name}_pool", f"{name}_term"
     coordinates = {pool_dim: np.arange(len(pool_defaults), dtype=np.int64), term_dim: terms}
-    native, roles, register = _resolve_coefficients(spec, design, pool_defaults, qualified_priors)
+    if joint_prior is None:
+        native, roles, register, standardized = _resolve_coefficients(
+            spec, design, pool_defaults, qualified_priors, person_effects=person_effects
+        )
+    else:
+        native = [joint_prior]
+        roles = np.full((len(pool_defaults), len(terms)), "prior_0", dtype=object)
+        standardized = np.zeros(roles.shape, dtype=bool)
     if theta:
         population = constant.attrs["population"]
         by_group = population["recipe"]["regression_by_group"]
@@ -301,7 +337,7 @@ def _coefficient_layout(
             "coefficients",
             (pool_dim, term_dim),
             str(roles.flat[0]),
-            fixed_for_scoring=False,
+            fixed_for_scoring=person_effects,
             kind="regression_coefficient",
             component="regression",
         )
@@ -309,6 +345,8 @@ def _coefficient_layout(
         flat_roles = roles.ravel()
         records = [layout]
     layout["noncentered"] = spec.coefficient_noncentered
+    if joint_prior is not None:
+        layout["joint_per_pool"] = True
     if spec.coefficient_noncentered and "Intercept" in terms:
         layout["centered_roles"] = tuple(dict.fromkeys(roles[:, terms.index("Intercept")]))
     role_variable = f"{name}_coefficient_prior_role"
@@ -316,7 +354,10 @@ def _coefficient_layout(
     layout["prior_role_index"] = role_variable
     position_variable = f"{name}_coefficient_positions"
     arrays[position_variable] = (pool_dim, term_dim), positions
-    if not theta:
+    if person_effects:
+        arrays[f"{name}_standardized"] = (pool_dim, term_dim), standardized
+    actual_layouts = [layout]
+    if not theta and (not person_effects or standardized.any()):
         fixed = (
             np.full(len(pool_defaults), spec.parameter_residual_sd, dtype=float)
             if isinstance(spec.parameter_residual_sd, Real)
@@ -329,7 +370,11 @@ def _coefficient_layout(
                 continue
             prior = spec.parameter_residual_sd
             if prior is None:
-                _, prior, _ = regression_defaults(model, role)
+                prior = (
+                    PriorPreparation.default(pm.HalfNormal.dist, sigma=0.5)
+                    if person_effects
+                    else regression_defaults(model, role)[1]
+                )
             require_proper(prior, role="Regression residual_sd")
             residual_roles.append(register(prior))
         residual = _layout(
@@ -340,7 +385,7 @@ def _coefficient_layout(
             residual_roles[0],
             fixed=fixed,
             sources=None if fixed is None else np.full(fixed.shape, "fixed", dtype="U16"),
-            fixed_for_scoring=False,
+            fixed_for_scoring=person_effects,
             kind="regression_sd",
             component="regression",
             domain="positive",
@@ -353,8 +398,8 @@ def _coefficient_layout(
             )
             residual["prior_role_index"] = role_variable
         records.append(residual)
+        actual_layouts.append(residual)
     priors = {f"prior_{index}": prior for index, prior in enumerate(native)}
-    actual_layouts = [layout] + ([] if theta else [residual])
     records_by_role = {}
     for current in actual_layouts:
         records_by_role.update(freeze_prior_shapes(arrays, current, priors))
@@ -415,17 +460,30 @@ def _store_targets(constant, arrays, name, targets, spec, slots_by_binding):
     return records
 
 
+def _align_people(constant, spec):
+    columns = (spec.id,) if isinstance(spec.id, str) else spec.id
+    if len(columns) != 1:
+        raise ValueError("Person-level regression requires a single person ID column")
+    keys = pd.DataFrame({columns[0]: pd.Series(constant.person.values, dtype=object)})
+    return align_rows(spec.data, keys, columns, f"Regression {spec.formula.strip()!r}")
+
+
+def _person_design(spec, feature_columns, *, aligned_rows, reference_rows=None, group_columns=()):
+    """Fit a person-level formula against prepared respondent rows."""
+    return fit_design(
+        spec,
+        None,
+        reference_rows=reference_rows,
+        include_intercept=False,
+        group_columns=group_columns,
+        aligned_rows=aligned_rows,
+        feature_columns=feature_columns,
+    )
+
+
 def _theta_design(constant, spec, feature_columns, *, aligned_rows=None):
     if spec.parameter_residual_sd is not None or spec.deviation_noncentered is not None:
         raise ValueError("Theta regression uses the existing population scale and parameterization")
-    columns = (spec.id,) if isinstance(spec.id, str) else spec.id
-    if len(columns) != 1:
-        raise ValueError("Theta regression requires a single person ID column")
-    keys = (
-        pd.DataFrame({columns[0]: pd.Series(constant.person.values, dtype=object)})
-        if aligned_rows is None
-        else None
-    )
     population = constant.attrs["population"]
     recipe = population["recipe"]
     reference = None
@@ -433,13 +491,11 @@ def _theta_design(constant, spec, feature_columns, *, aligned_rows=None):
         reference = constant.person_group.values == recipe["groups"].index(
             recipe["reference_group"]
         )
-    design = fit_design(
+    design = _person_design(
         spec,
-        keys,
+        feature_columns,
         reference_rows=reference,
-        include_intercept=False,
-        aligned_rows=aligned_rows,
-        feature_columns=feature_columns,
+        aligned_rows=_align_people(constant, spec) if aligned_rows is None else aligned_rows,
     )
     if recipe["group"] in {record["name"] for record in design.attrs["feature_records"]}:
         raise ValueError("Theta formula cannot repeat the population group column")
@@ -540,7 +596,10 @@ def _prune_regressions(result, constant, replaced):
         path = f"/{scope['path']}"
         targets = []
         for target in scope["targets"]:
-            if (target["binding_id"], target["prior_role"]) not in replaced:
+            key = (target["binding_id"], target["prior_role"])
+            if scope.get("person_effects", False):
+                key += (result[path].attrs["formula"],)
+            if key not in replaced:
                 targets.append(target)
                 continue
             name = target["indices"]
@@ -649,6 +708,8 @@ def prepare_regressions(
     *,
     marginal_correlation: bool | None = None,
     qualified_priors: Mapping | None = None,
+    person_effects: bool = False,
+    dif_options: Mapping | None = None,
 ) -> PreparedInputs:
     """Build an atomic candidate using latest declaration order and existing layouts."""
     state = prepared.data
@@ -679,38 +740,104 @@ def prepare_regressions(
         return prepared._with_parameter_updates(result)
     result = _copy_parameter_groups(state)
     constant = result["/constant_data"]
-    active, replaced = _resolve_regressions(constant, declarations)
+    active, replaced = _resolve_regressions(constant, declarations, person_effects=person_effects)
     constant, _ = _prune_regressions(result, constant, replaced)
     if marginal_correlation is not None:
         constant.attrs["marginal_correlation"] = marginal_correlation
     constant, changed_kinds = _bind_regressions(
-        constant, result, active, replaced, qualified_priors=qualified_priors
+        constant,
+        result,
+        active,
+        replaced,
+        qualified_priors=qualified_priors,
+        person_effects=person_effects,
+        dif_options=dif_options,
     )
     return _finish_parameter_update(prepared, result, constant, changed_kinds)
 
 
-def _resolve_regressions(constant, declarations):
+def _resolve_regressions(constant, declarations, *, person_effects=False):
     """Check every formula's syntax, then resolve the effective target declarations."""
     features_by_formula = {}
-    for _, spec in declarations:
+    for target, spec in declarations:
+        if person_effects and target == "theta":
+            raise ValueError("Person measurement effects require a measurement target")
         if not isinstance(spec, Regression):
             raise TypeError("regressions values must be Regression declarations")
         if spec.formula not in features_by_formula:
             features_by_formula[spec.formula] = validate_formula(spec.formula)
-    active, replaced = _active_updates(constant, declarations, regression=True)
+    active, replaced = _active_updates(
+        constant, declarations, regression=True, person_effects=person_effects
+    )
     return [
         (target, spec, selected, features_by_formula[spec.formula])
         for target, spec, selected in active
     ], replaced
 
 
+def _check_person_effect_designs(constant, groups, changed):
+    """Check the combined design once for each distinct set of overlapping formulas."""
+    affected = {entry[:2] for entry in changed}
+    designs = defaultdict(list)
+    for scope in constant.attrs["regression_scopes"]:
+        if not scope.get("person_effects", False):
+            continue
+        path = f"/{scope['path']}"
+        for target in scope["targets"]:
+            key = target["binding_id"], target["prior_role"]
+            if key in affected:
+                designs[key].append(path)
+    for paths in dict.fromkeys(tuple(paths) for paths in designs.values()):
+        matrices = [groups[path].X.values for path in paths]
+        labels = ", ".join(groups[path].attrs["formula"] for path in paths)
+        _rank_check(np.column_stack((np.ones(len(matrices[0])), *matrices)), labels)
+
+
+def _person_effect_design(constant, spec, selected, features, aligned_rows, options, overrides):
+    """Prepare one respondent encoder and the coefficient law for its target pools."""
+    design = _person_design(
+        spec, features, aligned_rows=aligned_rows, group_columns=options.get("group_columns", ())
+    )
+    if options.get("categorical") and any(
+        record["kind"] != "category" for record in design.attrs["feature_records"]
+    ):
+        raise ValueError("DIF groups require categorical columns; cast numeric group labels")
+    joint_prior = None
+    if (pairwise := options.get("pairwise")) is not None:
+        if (
+            spec.priors
+            or overrides
+            or spec.parameter_residual_sd is not None
+            or spec.coefficient_noncentered
+        ):
+            raise ValueError("PairwiseL1 supplies the entire joint coefficient prior")
+        design = pairwise_design(design)
+        joint_prior = PairwiseL1.dist(len(design.attrs["group_basis"]), **pairwise)
+    _, defaults, targets, _, labels = _item_targets(
+        constant,
+        selected,
+        selected[0][2]["key"],
+        person_effects=True,
+        shared=options.get("shared", False),
+    )
+    return design, defaults, targets, labels, joint_prior
+
+
 def _bind_regressions(
-    constant, groups, active, replaced, *, qualified_priors=None, theta_alignment=None
+    constant,
+    groups,
+    active,
+    replaced,
+    *,
+    qualified_priors=None,
+    theta_alignment=None,
+    person_effects=False,
+    dif_options=None,
 ):
     """Fit encoders and bind the resolved targets on a candidate layout."""
     qualified_priors = dict(qualified_priors or {})
     slots_by_binding = defaultdict(list)
-    bindings = {binding for binding, _ in replaced if binding != -1}
+    bindings = {key[0] for key in replaced if key[0] != -1}
     if bindings:
         for measurement in constant.attrs["measurements"]:
             for slot in measurement["slots"]:
@@ -721,9 +848,12 @@ def _bind_regressions(
     regression_offset = constant.attrs["population"]["parameter_set_index"] + 1
     changed_kinds = set(REGRESSION_KINDS)
     arrays = LayoutBuilder(coords={}, attrs={"next_binding_id": constant.attrs["next_binding_id"]})
+    person_rows = {}
     for target, spec, selected, feature_columns in active:
         name = f"r{next_id}"
         theta = target == "theta"
+        joint_prior = None
+        overrides = qualified_priors.pop(target, None)
         if theta:
             design, defaults, targets = _theta_design(
                 constant, spec, feature_columns, aligned_rows=theta_alignment
@@ -731,6 +861,14 @@ def _bind_regressions(
             labels = [("theta", "trait", -1)] * len(defaults)
             constant = constant.drop_dims("theta_predictor")
             constant.attrs["population"]["recipe"]["regression"] = name
+        elif person_effects:
+            key = id(spec.data), spec.id
+            if key not in person_rows:
+                person_rows[key] = _align_people(constant, spec)
+            options = (dif_options or {}).get((target, spec.formula.strip()), {})
+            design, defaults, targets, labels, joint_prior = _person_effect_design(
+                constant, spec, selected, feature_columns, person_rows[key], options, overrides
+            )
         else:
             spec, design, defaults, targets, labels = _measurement_regression_design(
                 constant, target, spec, selected, feature_columns
@@ -745,13 +883,16 @@ def _bind_regressions(
             defaults,
             labels,
             theta=theta,
-            qualified_priors=qualified_priors.pop(target, None),
+            qualified_priors=overrides,
+            person_effects=person_effects,
+            joint_prior=joint_prior,
         )
         records = _store_targets(constant, arrays, name, targets, spec, slots_by_binding)
         constant.attrs["regression_scopes"].append(
             dict(
                 name=name,
                 target=target,
+                person_effects=person_effects,
                 regression_index=next_id,
                 parameter_set_index=regression_offset + next_id,
                 path=f"covariates/{name}",
@@ -770,6 +911,8 @@ def _bind_regressions(
     constant = merge_prepared([constant, arrays])
     if (-1, "theta") in replaced:
         _check_population_directions(constant)
+    if person_effects:
+        _check_person_effect_designs(constant, groups, replaced)
     return constant, changed_kinds
 
 

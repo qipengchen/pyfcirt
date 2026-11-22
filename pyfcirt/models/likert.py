@@ -6,15 +6,14 @@ import pytensor.tensor as pt
 from jax.nn import log_softmax, softplus
 
 from pyfcirt.models import categorical
-from pyfcirt.models.graph import response_rv, slot_values
+from pyfcirt.models.graph import response_rv
 
 
 class _ItemDistribution(pm.Distribution):
     """Share node construction and coordinates, without branching on model names."""
 
     @classmethod
-    def bind(cls, spec, batch, *, ability, parameters):
-        values = slot_values(batch, parameters)
+    def bind(cls, spec, batch, *, ability, values):
         arguments = (ability, *(values[key] for key in cls.parameter_keys))
         return response_rv(cls.kernel, arguments, batch=batch)
 

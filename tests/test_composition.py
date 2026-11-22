@@ -183,10 +183,9 @@ def test_ordinary_parameter_extension_reuses_preparation_graph_summary_and_scori
     )
     original_bind = MGPPMDistribution.bind.__func__
 
-    def bind(cls, spec, batch, *, ability, parameters):
-        parameters = dict(parameters)
-        parameters["statement_intercept"] += parameters["statement_shift"]
-        return original_bind(cls, spec, batch, ability=ability, parameters=parameters)
+    def bind(cls, spec, batch, *, ability, values):
+        values = dict(values, intercept=values["intercept"] + values["statement_shift"])
+        return original_bind(cls, spec, batch, ability=ability, values=values)
 
     monkeypatch.setattr(MGPPMDistribution, "bind", classmethod(bind))
     source = pair_input()

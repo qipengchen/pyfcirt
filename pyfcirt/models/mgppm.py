@@ -6,7 +6,7 @@ import pytensor.tensor as pt
 from jax.nn import log_softmax
 
 from pyfcirt.models import categorical
-from pyfcirt.models.graph import response_rv, slot_values
+from pyfcirt.models.graph import response_rv
 
 
 class MGPPMDistribution(pm.Distribution):
@@ -35,8 +35,7 @@ class MGPPMDistribution(pm.Distribution):
         )
 
     @classmethod
-    def bind(cls, spec, batch, *, ability, parameters):
-        values = slot_values(batch, parameters)
+    def bind(cls, spec, batch, *, ability, values):
         loading = values["loading_magnitude"] * pt.cast(
             batch.keying, values["loading_magnitude"].dtype
         )

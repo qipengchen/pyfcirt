@@ -2,6 +2,7 @@
 
 import numpy as np
 import pandas as pd
+import pymc as pm
 import pytest
 
 import pyfcirt as fc
@@ -182,10 +183,17 @@ def test_frozen_person_recipe_reuses_training_scale_and_rejects_new_levels():
 
 
 @pytest.mark.parametrize("theta_residual_scale", ["unit", "group"])
-def test_group_scale_defaults_and_only_nonreference_sd_is_free(theta_residual_scale):
+@pytest.mark.parametrize("theta_correlation", ["group", "shared"])
+def test_group_scale_defaults_and_only_nonreference_sd_is_free(
+    theta_residual_scale, theta_correlation
+):
 
     people = pd.DataFrame({"person_id": [1, 2], "school": ["A", "B"]})
-    options = {} if theta_residual_scale == "unit" else {"theta_residual_scale": "group"}
+    options = {}
+    if theta_residual_scale == "group":
+        options["theta_residual_scale"] = "group"
+    if theta_correlation == "shared":
+        options["theta_correlation"] = "shared"
     model = fc.Model(
         fc.PreparedInputs.from_inputs(
             mixed_inputs(),
@@ -205,22 +213,26 @@ def test_group_scale_defaults_and_only_nonreference_sd_is_free(theta_residual_sc
     if theta_residual_scale == "unit":
         assert fixed[4] == fixed[7] == 1.0
 
+    correlation_shape = (2, 2) if theta_correlation == "shared" else (2, 2, 2)
+    assert layouts["trait_correlation"].shape == correlation_shape
+    graph = model.build()
+    correlation, sd, sigma, mean = pm.draw(
+        [
+            graph[name]
+            for name in ("trait_correlation", "population_sd", "covariance", "population_mean")
+        ],
+        random_seed=37,
+    )
+    np.testing.assert_allclose(sigma, correlation * sd[..., :, None] * sd[..., None, :])
+    np.testing.assert_array_equal(mean[0], [0, 0])
+    if theta_residual_scale == "unit":
+        np.testing.assert_array_equal(sd, np.ones((2, 2)))
+
 
 def test_fixed_scoring_binds_population_reports_from_shared_correlation():
-    from dataclasses import replace
-
     from pytensor.tensor import TensorConstant
 
-    from tests.helpers import labelled_point
-
-    class SharedCorrelation(fc.PopulationSpec):
-        def parameter_declarations(self, *, grouped=False):
-            return tuple(
-                replace(declaration, axes=("trait", "trait_aux"))
-                if declaration.key == "trait_correlation"
-                else declaration
-                for declaration in super().parameter_declarations(grouped=grouped)
-            )
+    from tests.helpers import labelled_point, supplied_posterior
 
     source = mixed_inputs()[1]
     people = pd.DataFrame({"person_id": [1, 2], "school": ["A", "B"]})
@@ -228,8 +240,11 @@ def test_fixed_scoring_binds_population_reports_from_shared_correlation():
         fc.PreparedInputs.from_inputs(
             source,
             person_data=people,
-            population=SharedCorrelation(
-                group="school", reference_group="A", theta_residual_scale="group"
+            population=fc.PopulationSpec(
+                group="school",
+                reference_group="A",
+                theta_residual_scale="group",
+                theta_correlation="shared",
             ),
         )
     )
@@ -263,6 +278,10 @@ def test_fixed_scoring_binds_population_reports_from_shared_correlation():
     with pytest.raises(ValueError, match="declared shared R"):
         fc.score_model(reference, source.responses, person_data=people, parameters=incompatible)
     assert reference.idata is original_results
+    with pytest.raises(ValueError, match="declared shared R"):
+        supplied_posterior(reference, incompatible, inference_method="mcmc")
+    assert reference.idata is original_results
+    supplied_posterior(reference, point, inference_method="mcmc")
 
 
 def test_marginal_moments_match_independent_total_covariance():

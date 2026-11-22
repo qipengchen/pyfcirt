@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from math import isfinite
 from numbers import Real
@@ -235,3 +235,125 @@ def regression_declarations(
     if not declarations:
         raise ValueError("Supply at least one regression declaration")
     return declarations, qualified_priors
+
+
+def _dif_target(label):
+    parts = label.split(".") if isinstance(label, str) else ()
+    if len(parts) not in (2, 3) or parts[0] not in {"fc", "items"} or not all(parts):
+        raise ValueError(f"Invalid DIF target {label!r}; use fc.parameter or items.parameter")
+    return tuple(parts)
+
+
+def _dif_group_terms(groups):
+    if isinstance(groups, str):
+        groups = (groups,)
+    elif not isinstance(groups, Sequence):
+        raise TypeError("DIF groups must be a column name or a sequence of group terms")
+    for term in groups:
+        columns = (term,) if isinstance(term, str) else term
+        if (
+            not isinstance(columns, tuple)
+            or not columns
+            or any(
+                not isinstance(name, str) or not name.isidentifier() or name.startswith("_")
+                for name in columns
+            )
+        ):
+            raise ValueError("DIF groups require column names or tuples of column names")
+        if len(set(columns)) != len(columns):
+            raise ValueError("Crossed DIF group columns must be distinct")
+        yield ":".join(columns), columns if len(columns) > 1 else ()
+
+
+def _dif_prior(prior, settings):
+    if not isinstance(settings, Mapping):
+        raise TypeError("DIF prior_options must be a mapping")
+    if prior == "hierarchical":
+        allowed = RegressionOptions.__annotations__.keys() - {"deviation_noncentered"}
+        defaults = {}
+    elif prior == "pairwise_l1":
+        defaults = {"strength": 3.0}
+        allowed = defaults.keys()
+    elif prior == "truncated_l1":
+        defaults = {"strength": 1.5, "cutoff": 0.5, "base_sd": 0.55}
+        allowed = defaults.keys()
+    else:
+        raise ValueError("DIF prior must be hierarchical, pairwise_l1 or truncated_l1")
+    if unknown := settings.keys() - allowed:
+        raise ValueError(f"Unknown {prior} DIF prior options: {sorted(unknown)}")
+    result = {**defaults, **settings}
+    if prior == "truncated_l1" and result["cutoff"] is None:
+        raise ValueError("Truncated L1 requires a finite positive cutoff")
+    return result
+
+
+def dif_declarations(
+    targets,
+    person_data,
+    *,
+    formula,
+    groups,
+    id_column,
+    pooling,
+    prior,
+    prior_options,
+    overrides,
+):
+    """Resolve user selectors into one atomic batch of prepared regression declarations."""
+    if isinstance(targets, str):
+        targets = (targets,)
+    if not isinstance(targets, Sequence) or not targets:
+        raise ValueError("Specify one or more DIF targets")
+    if not isinstance(id_column, str):
+        raise TypeError("DIF id must name one respondent ID column")
+    if formula is not None and (not isinstance(formula, str) or not formula.strip()):
+        raise ValueError("DIF formula must be a nonempty RHS string")
+    group_terms = tuple(_dif_group_terms(groups))
+    terms = tuple((rhs, columns, True) for rhs, columns in group_terms)
+    if formula is not None:
+        terms += ((formula.strip(), (), False),)
+    if not terms or len({rhs for rhs, _, _ in terms}) != len(terms):
+        raise ValueError("Supply distinct DIF group terms or a formula")
+    target_keys = tuple(dict.fromkeys(_dif_target(target) for target in targets))
+    configs = {} if overrides is None else overrides
+    if not isinstance(configs, Mapping):
+        raise TypeError("DIF overrides must be a mapping")
+    resolved = {_dif_target(label): config for label, config in configs.items()}
+    for key in resolved:
+        if key not in target_keys and (key[0], key[-1]) not in target_keys:
+            raise ValueError(f"DIF override does not select a requested target: {'.'.join(key)}")
+    if prior_options is not None and not isinstance(prior_options, Mapping):
+        raise TypeError("DIF prior_options must be a mapping")
+    defaults = {} if prior_options is None else prior_options
+    declarations, options = [], {}
+    ordered = sorted(dict.fromkeys((*target_keys, *resolved)), key=len)
+    for target in ordered:
+        override = resolved.get(target, {})
+        if not isinstance(override, Mapping):
+            raise TypeError("Each DIF target override must be a mapping")
+        if unknown := override.keys() - {"prior", "prior_options", "pooling"}:
+            raise ValueError(f"Unknown DIF target overrides: {sorted(unknown)}")
+        law = override.get("prior", prior)
+        method = override.get("pooling", pooling)
+        if method not in {"unit", "shared"}:
+            raise ValueError("DIF pooling must be unit or shared")
+        specific = override.get("prior_options", {})
+        if not isinstance(specific, Mapping):
+            raise TypeError("DIF prior_options must be a mapping")
+        inherited = defaults if law == prior else {}
+        settings = _dif_prior(law, {**inherited, **specific})
+        if law != "hierarchical" and not group_terms:
+            raise ValueError("The pairwise DIF priors require a groups declaration")
+        for rhs, columns, category in terms:
+            pairwise = settings if category and law != "hierarchical" else None
+            regression_options = settings if law == "hierarchical" else {}
+            declarations.append(
+                (target, Regression(rhs, person_data, id=id_column, **regression_options))
+            )
+            options[target, rhs] = {
+                "group_columns": columns,
+                "categorical": category,
+                "pairwise": pairwise,
+                "shared": method == "shared",
+            }
+    return declarations, options

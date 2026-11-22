@@ -17,10 +17,10 @@ from scipy import stats
 
 import pyfcirt as fc
 from pyfcirt.covariates.design import apply_design, fit_design
-from pyfcirt.covariates.model import build_regressions
+from pyfcirt.covariates.model import RegressionBinding, build_regressions
 from pyfcirt.data.coordinates import ParameterBlock
 from pyfcirt.data.regressions import _resolve_coefficients, prepare_regressions
-from pyfcirt.models.graph import ParameterFactory, RegressionBinding
+from pyfcirt.models.graph import ParameterFactory
 from pyfcirt.models.priors import same_prior
 from tests.helpers import replay_design, runtime_snapshot, supplied_posterior
 
@@ -253,7 +253,7 @@ def test_default_prior_unit_changes_preserve_predictions_and_jacobian_adjusted_d
     log_densities, predictions = [], []
     for design in (raw, changed, standardized):
         factors = np.array([design.attrs["prior_scale_divisors"][t] for t in design.term.values])
-        records, roles, _ = _resolve_coefficients(spec, design, base)
+        records, roles, _, _ = _resolve_coefficients(spec, design, base)
         scales = np.array(
             [
                 _normal_arguments(records[int(role.removeprefix("prior_"))])[1].eval()
@@ -309,7 +309,9 @@ def test_only_automatic_priors_convert_the_coefficient_sd(formulae, override):
     with pytest.raises(ValueError, match="automatic prior SD"):
         _resolve_coefficients(spec, design, base)
     prior = pm.Normal.dist(mu=0.2, sigma=0.7)
-    records, roles, _ = _resolve_coefficients(replace(spec, priors={override: prior}), design, base)
+    records, roles, _, _ = _resolve_coefficients(
+        replace(spec, priors={override: prior}), design, base
+    )
     slope = list(design.term.values).index("x")
     assert same_prior(records[int(roles[0, slope].removeprefix("prior_"))], prior)
 
@@ -363,13 +365,14 @@ def test_item_trait_pools_exclude_fixed_and_inactive_slots(formulae):
     assert same_prior(plan.priors[residual.prior_role], pm.HalfNormal.dist(sigma=0.2))
     assert residual.prior_role_index is None
 
-    binding = build_regressions(
+    bindings, _ = build_regressions(
         (plan,),
         {
             "regression_coefficient": pt.as_tensor_variable([0.25, 0.75]),
             "regression_sd": pt.as_tensor_variable([0.5, 1.5]),
         },
-    )[target.binding_id, target.prior_role]
+    )
+    binding = bindings[target.binding_id, target.prior_role]
     mean, scale = pytensor.function([], [binding.mean, binding.scale], mode="JAX")()
     assert_allclose(mean, [0.25, 0.75, 0.25])
     assert_allclose(scale, [0.5, 1.5, 0.5])
@@ -610,6 +613,428 @@ def cutpoint_input():
         }
     )
     return source, features
+
+
+@pytest.mark.parametrize("baseline_first", [True, False])
+def test_person_cutpoint_effect_uses_tirt_pair_rows_and_preserves_order(formulae, baseline_first):
+    source, pair_info = cutpoint_input()
+    responses = pd.concat(
+        [source.responses.frame.assign(person_id=person) for person in ("p1", "p2", "p3", "p4")],
+        ignore_index=True,
+    )
+    source = replace(
+        source,
+        responses=fc.ResponseTable(responses, format="block_long"),
+        model=fc.TIRT(loading_anchors={"a": 0.9, "b": 1.1}),
+        blocks=tuple(replace(block, model=None) for block in source.blocks),
+    )
+    model = fc.Model(source)
+    people = pd.DataFrame({"person_id": ["p4", "p3", "p2", "p1"], "site": ["B", "B", "A", "A"]})
+    target = ("fc", "cutpoints")
+    effect = fc.Regression("site", people, id="person_id", parameter_residual_sd=0.5)
+
+    def add_effect(spec):
+        model._update_parameters(prepare_regressions, [(target, spec)], person_effects=True)
+
+    def add_baseline():
+        model.add_regressions(
+            "fc.cutpoints ~ 1",
+            pair_data=pair_info,
+            id_columns={"pair": ("block", "first", "second")},
+        )
+
+    if baseline_first:
+        add_baseline()
+        add_effect(effect)
+    else:
+        add_effect(effect)
+        add_baseline()
+    prepared = model.prepared
+    effect_plan = next(plan for plan in prepared.regressions if plan.person_effects)
+    native = model.build()
+    model_graph = model._bindings
+    for binding in model_graph.responses:
+        batch = binding.batch
+        cuts = next(slot for slot in batch.slots if slot.key == "cutpoints")
+        (offset,) = cuts.effects
+        ((_, lookup, _),) = prepared.person_effect_pools[cuts.kind]
+        assert not any(
+            array.flags.writeable for array in (lookup, offset.person, offset.pool, offset.position)
+        )
+        assert_array_equal(offset.person, np.repeat(batch.person, cuts.entry_index.shape[-1]))
+        assert effect_plan.design.key_0.values.tolist() == ["p1", "p2", "p3", "p4"]
+        baseline = model_graph.parameters[cuts.kind]
+        beta = model_graph.parameters["regression_coefficient"]
+        baseline_values = np.arange(
+            prepared.parameter_layouts[cuts.kind].fixed.size, dtype=baseline.dtype
+        )
+        for coefficient in (0, 2):
+            fixed = {
+                baseline: pt.as_tensor_variable(baseline_values),
+                beta: pt.ones_like(beta) * coefficient,
+            }
+            actual = pm.draw(
+                graph_replace(binding.parameters[1], fixed, strict=False), random_seed=7
+            )
+            deviation = effect_plan.design.X.values[batch.person, :] * (0.5 * coefficient)
+            assert_allclose(actual, cuts.entry_index + deviation)
+            assert np.all(np.diff(actual, axis=-1) > 0)
+    assert np.isfinite(native.compile_logp(mode="JAX")(native.initial_point(random_seed=7)))
+
+    with pytest.raises(ValueError, match="unknown|missing|absent|unmatched"):
+        add_effect(replace(effect, data=people.iloc[:-1]))
+    assert model.prepared is prepared and model.build() is native
+    with pytest.raises(ValueError, match="linearly dependent"):
+        add_effect(replace(effect, formula="1 + site"))
+    assert model.prepared is prepared and model.build() is native
+    add_effect(replace(effect, parameter_residual_sd=0.25))
+    assert len(model.prepared.regressions) == 2
+
+    from pyfcirt.data.prepare import _prepare_generation, _prepare_scoring
+
+    new = pd.DataFrame({"person_id": ["new2", "new1"], "site": ["A", "B"]})
+    schedule = fc.generation_schedule(model, ["new1", "new2"], person_data=new)
+    generated = _prepare_generation(model.prepared, schedule)
+    answers = fc.ResponseTable(
+        pd.concat(
+            [responses.iloc[:4].assign(person_id=person) for person in ("new1", "new2")],
+            ignore_index=True,
+        ),
+        format="block_long",
+    )
+    scored = _prepare_scoring(model.prepared, answers, person_data=new)
+    assert (
+        generated.calibration_identity
+        == scored.calibration_identity
+        == model.prepared.calibration_identity
+    )
+    assert_array_equal(
+        generated.person_effect_regressions[0].design.X,
+        scored.person_effect_regressions[0].design.X,
+    )
+    assert_array_equal(scored.person_effect_regressions[0].design.X[:, 0], [1, 0])
+    assert {kind for kind in scored.point_layouts if kind.startswith("regression_")} == {
+        "regression_coefficient",
+        "regression_sd",
+    }
+    changed = _prepare_scoring(model.prepared, answers, person_data=new.assign(site=["B", "A"]))
+    assert changed.scoring_batch_identity != scored.scoring_batch_identity
+    with pytest.raises(ValueError, match="unknown training categories"):
+        _prepare_scoring(model.prepared, answers, person_data=new.assign(site=["C", "A"]))
+
+
+@pytest.mark.parametrize("cutoff", [None, 0.5])
+def test_pairwise_dif_keeps_joint_pools_and_replays_category_labels(formulae, cutoff):
+    from scipy.linalg import helmert
+
+    from pyfcirt.data.prepare import _prepare_generation
+
+    source, _ = cutpoint_input()
+    categories = pd.Categorical(["north", "west", "east"], categories=["east", "north", "west"])
+    people = pd.DataFrame({"person_id": ["p0", "p1", "p2"], "site": categories})
+    responses = pd.concat(
+        [source.responses.frame.assign(person_id=person) for person in people.person_id],
+        ignore_index=True,
+    )
+    source = replace(
+        source,
+        responses=fc.ResponseTable(responses, format="block_long"),
+        blocks=(
+            fc.BlockSpec("one", model=fc.TIRT(loading_anchors={"a": 0.9, "b": 1.1})),
+            *source.blocks,
+        ),
+    )
+    model = fc.Model(source)
+    target = ("fc", "cutpoints")
+    term = fc.Regression("site", people, id="person_id")
+    options = {"strength": 1.5, "cutoff": cutoff}
+    model._update_parameters(
+        prepare_regressions,
+        [(target, term)],
+        person_effects=True,
+        dif_options={(target, "site"): {"pairwise": options}},
+    )
+    (plan,) = model.prepared.person_effect_regressions
+    (block,) = plan.blocks
+    assert block.prior_shapes["prior_0"] == [4, 2]
+    basis = helmert(3).T
+    assert_allclose(plan.design.X.values, basis[[1, 2, 0]])
+    native = model.build()
+    assert np.isfinite(native.compile_logp(mode="JAX")(native.initial_point(random_seed=17)))
+    assert pm.draw(native["regression_coefficient"], random_seed=41).shape == (8,)
+    new_people = pd.DataFrame({"person_id": ["pX", "pY"], "site": ["east", "west"]})
+    schedule = fc.generation_schedule(model, ["pY", "pX"], person_data=new_people)
+    replay = _prepare_generation(model.prepared, schedule)
+    assert_allclose(replay.person_effect_regressions[0].design.X.values, basis[[2, 0]])
+    assert replay.calibration_identity == model.prepared.calibration_identity
+    reordered = people.copy()
+    reordered["site"] = reordered["site"].cat.reorder_categories(["west", "north", "east"])
+    incompatible = fc.Model(source)
+    incompatible._update_parameters(
+        prepare_regressions,
+        [(target, replace(term, data=reordered))],
+        person_effects=True,
+        dif_options={(target, "site"): {"pairwise": options}},
+    )
+    assert_array_equal(
+        incompatible.prepared.person_effect_regressions[0].design.term,
+        plan.design.term,
+    )
+    with pytest.raises(ValueError, match="different frozen design"):
+        _prepare_generation(incompatible.prepared, schedule)
+
+    # A more specific replacement keeps complete events in the original pools.
+    tirt = ("fc", "TIRT", "cutpoints")
+    model._update_parameters(prepare_regressions, [(tirt, term)], person_effects=True)
+    retained, replaced = model.prepared.person_effect_regressions
+    (retained_block,) = retained.blocks
+    assert retained_block.prior_shapes["prior_0"] == [3, 2]
+    assert replaced.design.term.values.tolist() == ["site[north]", "site[west]"]
+    assert_allclose(retained.design.X, plan.design.X)
+
+
+def test_dif_summary_uses_common_baseline_and_held_predictor_on_parameter_scale(formulae):
+    from pyfcirt.analysis.dif import summarize_dif
+    from tests.helpers import supplied_posterior
+
+    source = item_input(pd.DataFrame({"item_id": ["a", "b"], "trait": ["A", "A"]}))
+    people = pd.DataFrame(
+        {"person_id": ["p1", "p2", "p3", "p4"], "site": ["A", "A", "B", "B"], "x": [0, 1, 0, 1]}
+    )
+    responses = pd.concat(
+        [source.responses.frame.assign(person_id=person) for person in people.person_id],
+        ignore_index=True,
+    )
+    model = fc.Model(replace(source, responses=replace(source.responses, frame=responses)))
+    target = ("items", "loading_magnitude")
+    terms = [
+        (target, fc.Regression(name, people, id="person_id", priors={"common": pm.Normal.dist()}))
+        for name in ("site", "x")
+    ]
+    model._update_parameters(prepare_regressions, terms, person_effects=True)
+    assert "regression_sd" not in model.prepared.parameter_layouts
+    original = fc.prior_predictive(model, draws=1, random_seed=49, store=False)
+    point = original.prior.dataset.isel(chain=0, draw=0, drop=True)
+    site, x = model.prepared.person_effect_regressions
+    coefficients = np.zeros_like(point.regression_coefficient.values)
+    coefficients[site.coefficient_entries.ravel()] = [np.log(2), 0.0]
+    coefficients[x.coefficient_entries.ravel()] = np.log(3)
+    point = point.assign(
+        regression_coefficient=point.regression_coefficient.copy(data=coefficients),
+        loading=point.loading.copy(data=np.asarray([1.5, 2.0])),
+    )
+    supplied_posterior(model, point, inference_method="mcmc")
+    summary = summarize_dif(model, contrasts={"site": ("A", "B")}, at={"x": 1.5})
+    assert summary.predictor.tolist() == ["site", "site"]
+    assert summary.units.tolist() == [("a",), ("b",)]
+    assert summary.detected.tolist() == [True, False]
+    assert_allclose(summary[["mean", "lower", "upper"]], [[4.5] * 3, [0.0] * 3])
+    assert summarize_dif(model, contrasts={"site": ("A", "B")}, significant_only=True).shape[0] == 1
+
+
+def test_dif_public_api_handles_crossed_groups_multiple_targets_and_overrides(formulae):
+    source = item_input(pd.DataFrame({"item_id": ["a", "b"], "trait": ["A", "A"]}))
+    people = pd.DataFrame(
+        {
+            "person_id": [f"p{i}" for i in range(8)],
+            "site": ["north"] * 4 + ["west"] * 4,
+            "language": ["en", "en", "zh", "zh"] * 2,
+            "age": [25, 44, 21, 35, 40, 30, 19, 56],
+        }
+    )
+    responses = pd.concat(
+        [source.responses.frame.assign(person_id=person) for person in people.person_id],
+        ignore_index=True,
+    )
+    model = fc.Model(replace(source, responses=replace(source.responses, frame=responses)))
+    with pytest.raises(ValueError, match="base model provides the intercept"):
+        model.add_dif_terms(
+            "items.intercept",
+            person_data=people,
+            groups="site",
+            prior_options={"priors": {"Intercept": pm.Normal.dist()}},
+        )
+    model.add_dif_terms(
+        ["items.loading_magnitude", "items.intercept"],
+        person_data=people,
+        groups=[("site", "language")],
+        formula="age",
+        overrides={"items.intercept": {"prior": "truncated_l1", "pooling": "shared"}},
+    )
+    designs = [plan.design.X.copy() for plan in model.prepared.person_effect_regressions]
+    model.set_priors({"items.intercept": pm.Normal.dist(sigma=0.3)})
+    plans = model.prepared.person_effect_regressions
+    for plan, original in zip(plans, designs, strict=True):
+        xr.testing.assert_identical(plan.design.X, original)
+    assert len(plans) == 4
+    joint = next(plan for plan in plans if "group_basis" in plan.design.attrs)
+    assert joint.coefficient_entries.shape == (1, 3)
+    assert "DIF: item_intercept ~ site:language" in model.summary()
+    assert "conditional Normal" not in model.summary()
+    assert joint.design.attrs["group_levels"] == (
+        ("north", "en"),
+        ("north", "zh"),
+        ("west", "en"),
+        ("west", "zh"),
+    )
+    native = model.build()
+    assert np.isfinite(native.compile_logp(mode="JAX")(native.initial_point()))
+    predictions = fc.prior_predictive(model, draws=3, random_seed=22, store=False)
+    posterior = predictions.prior.dataset
+    model.attach_samples(xr.DataTree.from_dict({"posterior": posterior}))
+    result = model.dif_summary(
+        {"site:language": (("north", "en"), ("west", "zh"))},
+        at={"age": 35},
+    )
+    assert set(result.parameter) == {"loading", "item_intercept"}
+    assert result.reference.tolist() == [("north", "en")] * 4
+    assert result.compared.tolist() == [("west", "zh")] * 4
+    assert set(result.units) == {("a",), ("b",)}
+    assert np.isfinite(result["mean"]).all()
+
+    new_features = people.iloc[[2, 4]].assign(person_id=["new-zh", "new-en"])
+    new_responses = responses.loc[responses.person_id.isin(["p2", "p4"])].assign(
+        person_id=lambda frame: frame.person_id.map({"p2": "new-zh", "p4": "new-en"})
+    )
+    scoring = fc.score_model(
+        model,
+        fc.ResponseTable(new_responses, format=source.responses.format),
+        person_data=new_features,
+    )
+    assert {rv.name for rv in scoring.build().free_RVs} == {"theta"}
+    for training, replayed in zip(plans, scoring.prepared.person_effect_regressions, strict=True):
+        assert_allclose(replayed.design.X, training.design.X.values[[2, 4]])
+
+
+def test_dif_summary_encodes_only_profiles_used_by_each_target(formulae):
+    source = item_input(pd.DataFrame({"item_id": ["a", "b"], "trait": ["A", "A"]}))
+    people = pd.DataFrame(
+        {
+            "person_id": list("abcdef"),
+            "site": ["A", "A", "A", "A", "B", "B"],
+            "language": ["en", "en", "zh", "zh", "zh", "zh"],
+        }
+    )
+    responses = pd.concat(
+        [source.responses.frame.assign(person_id=person) for person in people.person_id],
+        ignore_index=True,
+    )
+    model = fc.Model(replace(source, responses=replace(source.responses, frame=responses)))
+    model.add_dif_terms(
+        "items.loading_magnitude", person_data=people, groups=[("site", "language")]
+    )
+    model.add_dif_terms("items.intercept", person_data=people, groups="site")
+    prior = fc.prior_predictive(model, draws=3, random_seed=19, store=False)
+    model.attach_samples(xr.DataTree.from_dict({"posterior": prior.prior.dataset}))
+
+    result = model.dif_summary()
+    assert result.groupby("predictor").parameter.unique().map(list).to_dict() == {
+        "site": ["item_intercept"],
+        "site:language": ["loading"],
+    }
+    assert len(result) == 8
+    with pytest.raises(ValueError, match="Unknown training combinations"):
+        model.dif_summary({"site:language": (("A", "en"), ("B", "en"))})
+
+
+def test_dif_default_contrasts_respect_each_targets_fitted_levels(formulae):
+    source = item_input(pd.DataFrame({"item_id": ["a", "b"], "trait": ["A", "A"]}))
+    people = pd.DataFrame({"person_id": list("abcdef"), "site": list("AABBCC")})
+    responses = pd.concat(
+        [source.responses.frame.assign(person_id=person) for person in people.person_id],
+        ignore_index=True,
+    )
+    model = fc.Model(replace(source, responses=replace(source.responses, frame=responses)))
+    model.add_dif_terms("items.loading_magnitude", person_data=people, groups="site")
+    model.add_dif_terms("items.intercept", person_data=people.replace({"C": "B"}), groups="site")
+    prior = fc.prior_predictive(model, draws=3, random_seed=19, store=False)
+    model.attach_samples(xr.DataTree.from_dict({"posterior": prior.prior.dataset}))
+
+    result = model.dif_summary()
+    assert len(result) == 8
+    assert set(
+        result[["parameter", "reference", "compared"]].itertuples(index=False, name=None)
+    ) == {
+        ("loading", "A", "B"),
+        ("loading", "A", "C"),
+        ("loading", "B", "C"),
+        ("item_intercept", "A", "B"),
+    }
+    explicit = model.dif_summary({"site": ("A", "B")})
+    common = result.loc[(result.reference == "A") & (result.compared == "B")]
+    pd.testing.assert_frame_equal(explicit, common.reset_index(drop=True))
+
+
+def test_mixed_measurement_dif_can_share_covariates_with_theta(formulae):
+    from tests.helpers import mixed_inputs
+
+    people = pd.DataFrame(
+        {
+            "person_id": np.arange(1, 9),
+            "site": ["A", "A", "B", "B"] * 2,
+            "language": ["en", "zh"] * 4,
+        }
+    )
+    channels = []
+    for source in mixed_inputs():
+        original = source.responses.frame
+        responses = pd.concat(
+            [original[original.person_id == 1].assign(person_id=p) for p in people.person_id],
+            ignore_index=True,
+        )
+        channels.append(replace(source, responses=replace(source.responses, frame=responses)))
+    model = fc.Model().prepare(
+        tuple(channels),
+        regressions={"theta": fc.Regression("site", people, id="person_id")},
+    )
+    model.add_dif_terms(
+        ["fc.intercept", "items.intercept"],
+        person_data=people,
+        groups=["site", "language"],
+        overrides={"fc.MGPPM.intercept": {"prior": "pairwise_l1"}},
+    )
+    prepared = model.prepared
+    assert prepared.theta_regression.design.attrs["formula"] == "site"
+    assert len(prepared.person_effect_regressions) == 4
+    assert {
+        target.kind for plan in prepared.person_effect_regressions for target in plan.targets
+    } == {"statement_intercept", "item_intercept"}
+    native = model.build()
+    assert np.isfinite(native.compile_logp(mode="JAX")(native.initial_point()))
+    with pytest.raises(ValueError, match="linearly dependent"):
+        model.add_dif_terms("items.intercept", person_data=people, formula="1 + site")
+    assert model.prepared is prepared and model.build() is native
+
+
+@pytest.mark.parametrize("change_units", [1.0, 1000.0])
+def test_person_effect_slopes_scale_with_training_units_and_keep_explicit_priors(
+    formulae, change_units
+):
+    people = pd.DataFrame(
+        {
+            "pid": [1, 2, 3, 4],
+            "x": np.array([-2.0, 0.0, 1.0, 3.0]) * change_units,
+            "site": ["A", "A", "B", "B"],
+        }
+    )
+    spec = fc.Regression("x * site", people, id="pid", priors={"site[B]": pm.Normal.dist(sigma=2)})
+    matrix = fit_design(spec, people[["pid"]], include_intercept=False)
+    priors, roles, _, standardized = _resolve_coefficients(
+        spec, matrix, [(fc.TIRT(), "cutpoints")], person_effects=True
+    )
+    terms = matrix.term.values.tolist()
+    assert terms == ["x", "site[B]", "x:site[B]"]
+    assert_array_equal(standardized[0], [True, False, True])
+    effects = np.column_stack(
+        [
+            matrix.X[:, i] * _normal_arguments(priors[int(role.split("_")[1])])[1].eval()
+            for i, role in enumerate(roles[0])
+        ]
+    )
+    x = np.array([-2.0, 0.0, 1.0, 3.0])
+    z = (x - x.mean()) / x.std()
+    b = np.array([0.0, 0.0, 1.0, 1.0])
+    assert_allclose(effects, np.column_stack((z, 2 * b, z * b)))
 
 
 def test_model_qualified_priors_share_one_formula_and_preserve_other_models(formulae):
@@ -1011,7 +1436,7 @@ def test_beta_and_B_use_centered_priors_unless_explicitly_noncentered(formulae, 
         globals_ = factory.build(
             kind for kind in ("regression_coefficient", "regression_sd") if kind in factory.layouts
         )
-        targets = build_regressions(prepared.regressions, globals_)
+        targets, _ = build_regressions(prepared.regressions, globals_)
     key = "regression_coefficient"
     assert globals_[key].name == "regression_coefficient"
     assert any("noncentered" in rv.name for rv in graph.free_RVs) is noncentered
@@ -2006,7 +2431,7 @@ def test_theta_pool_order_replays_distinct_terms_traits_and_an_omitted_training_
             current.coords["regression_coefficient_id"],
             prepared.coords["regression_coefficient_id"],
         )
-        bindings = build_regressions(
+        bindings, _ = build_regressions(
             current.regressions,
             {layout.kind: pt.as_tensor_variable(coefficients.ravel())},
         )

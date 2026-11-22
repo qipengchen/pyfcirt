@@ -11,6 +11,7 @@ import pandas as pd
 import xarray as xr
 
 from pyfcirt.common.validation import align_rows, require_frame
+from pyfcirt.covariates.pairwise import group_basis
 from pyfcirt.covariates.specification import Regression, _formula_columns
 
 
@@ -139,6 +140,24 @@ def _compile(formula, frame, include_intercept):
     return common, matrix, formulae.__version__
 
 
+_GROUP_FACTOR = "difGroup"
+
+
+def _crossed_frame(frame, columns, *, levels=None):
+    """Code the observed joint categories and retain their typed labels."""
+    joint = pd.MultiIndex.from_frame(frame[list(columns)])
+    if levels is None:
+        levels = tuple(joint.unique().tolist())
+    codes = pd.MultiIndex.from_tuples(levels).get_indexer(joint)
+    if (codes < 0).any():
+        bad = joint[codes < 0].unique().tolist()[:5]
+        raise ValueError(f"Unknown training combinations for {':'.join(columns)}: {bad}")
+    return pd.DataFrame(
+        {_GROUP_FACTOR: pd.Categorical.from_codes(codes, range(len(levels)), ordered=True)},
+        index=frame.index,
+    ), levels
+
+
 def _finite_matrix(matrix, keys, context):
     values = matrix.to_numpy(dtype="float64")
     invalid = ~np.isfinite(values)
@@ -159,6 +178,7 @@ def fit_design(
     include_intercept: bool = True,
     aligned_rows: tuple[np.ndarray, pd.Index] | None = None,
     feature_columns: tuple[str, ...] | None = None,
+    group_columns: tuple[str, ...] = (),
 ) -> xr.Dataset:
     """Freeze Formulae coding and training transforms in the requested entity order.
 
@@ -188,13 +208,19 @@ def fit_design(
         if reference.shape != (len(frame),) or not reference.any():
             raise ValueError("reference_rows must match keys and select at least one row")
     records, prior_scales = _training_features(frame, identities, reference, spec, context)
-    common, matrix, version = _compile(formula, frame, include_intercept)
+    levels = None
+    if group_columns:
+        if any(record["kind"] != "category" for record in records):
+            raise ValueError("Crossed DIF groups require categorical columns")
+        frame, levels = _crossed_frame(frame, group_columns)
+    expression = _GROUP_FACTOR if group_columns else formula
+    common, matrix, version = _compile(expression, frame, include_intercept)
     values = _finite_matrix(matrix, identities, context)
     terms = list(matrix.columns)
     if not terms:
         raise ValueError(f"{context} has no design columns; an empty regression is unnecessary")
     if not include_intercept and "Intercept" in spec.priors:
-        raise ValueError("A theta regression cannot declare an Intercept prior")
+        raise ValueError(f"{context}: the base model provides the intercept")
     if unknown := spec.priors.keys() - {*terms, "common"}:
         raise ValueError(f"{context} has priors for unknown design columns: {sorted(unknown)!r}")
     divisors = {}
@@ -236,10 +262,40 @@ def fit_design(
             encoder=common,
         ),
     )
+    if group_columns:
+        result.attrs.update(group_columns=group_columns, group_levels=levels)
     for index in range(len(columns)):
         values = identities.get_level_values(index).to_numpy(dtype=object)
         result[f"key_{index}"] = ("row", values)
     return result
+
+
+def _project_groups(values, basis):
+    # Formulae omits the reference level; its row is recovered by the intercept.
+    return values @ (basis[1:] - basis[0]) + basis[0]
+
+
+def pairwise_design(training):
+    """Replace one categorical treatment design with zero-sum contrasts."""
+    records = training.attrs["feature_records"]
+    levels = training.attrs.get("group_levels")
+    if levels is None:
+        if (
+            len(records) != 1
+            or records[0]["kind"] != "category"
+            or training.attrs["formula"] != records[0]["name"]
+        ):
+            raise ValueError("PairwiseL1 requires a single categorical group term")
+        levels = records[0]["levels"]
+    if len(levels) < 2:
+        raise ValueError("PairwiseL1 requires at least two groups")
+    basis = group_basis(len(levels))
+    names = [f"contrast[{index}]" for index in range(1, len(levels))]
+    return (
+        training.assign_coords(term=names)
+        .assign(X=(("row", "term"), _project_groups(training.X.values, basis)))
+        .assign_attrs(group_basis=basis.tolist(), encoded_terms=training.term.values.tolist())
+    )
 
 
 def apply_design(
@@ -253,15 +309,20 @@ def apply_design(
     context = f"Regression {attrs['formula']!r}"
     frame = _feature_rows(data, [r["name"] for r in records], positions, identities, context)
     transformed = _transformed(frame, records, identities, context)
+    if columns := attrs.get("group_columns"):
+        transformed, _ = _crossed_frame(transformed, columns, levels=attrs["group_levels"])
     common = attrs["encoder"]
     terms = training.term.values.tolist()
     matrix = common.evaluate_new_data(transformed).as_dataframe()
     if not attrs["include_intercept"]:
         matrix = matrix.drop(columns="Intercept", errors="ignore")
-    if list(matrix.columns) != terms:
+    if list(matrix.columns) != attrs.get("encoded_terms", terms):
         raise ValueError(f"{context}: new-data design columns differ from the frozen encoding")
+    values = _finite_matrix(matrix, identities, context)
+    if "group_basis" in attrs:
+        values = _project_groups(values, np.asarray(attrs["group_basis"]))
     return xr.DataArray(
-        _finite_matrix(matrix, identities, context),
+        values,
         dims=("row", "term"),
         coords=dict(row=np.arange(len(frame)), term=terms),
         name="X",

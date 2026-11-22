@@ -43,3 +43,6 @@ to obtain their joint log likelihood per observation. The
    ~pyfcirt.models.likert.GPCMDistribution
    ~pyfcirt.models.likert.GGUMDistribution
 ```
+
+Use [PairwiseL1](dif.md#pairwisel1) as a prior on zero-sum group contrasts
+in a native PyMC graph.

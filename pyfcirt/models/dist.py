@@ -1,5 +1,6 @@
 """Public import namespace for native PyMC measurement distributions."""
 
+from pyfcirt.covariates.pairwise import PairwiseL1
 from pyfcirt.models.likert import (
     DichotomousIRTDistribution,
     GGUMDistribution,
@@ -18,6 +19,7 @@ __all__ = [
     "GPCMDistribution",
     "GTUMDistribution",
     "MGPPMDistribution",
+    "PairwiseL1",
     "TIRTDistribution",
     "TIRTRankDistribution",
     "TwoPLRankDistribution",

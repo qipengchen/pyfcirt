@@ -5,7 +5,6 @@ import pymc as pm
 import pytensor.tensor as pt
 
 from pyfcirt.models import categorical
-from pyfcirt.models.graph import slot_values
 from pyfcirt.models.thurstonian.normal import (
     beta_shapes,
     comparison_rv,
@@ -55,10 +54,9 @@ class TIRTDistribution(pm.Distribution):
         )
 
     @classmethod
-    def bind(cls, spec, batch, *, ability, parameters):
+    def bind(cls, spec, batch, *, ability, values):
         """Use the prepared pairs and the same numerical outputs for every analysis."""
 
-        values = slot_values(batch, parameters)
         loading = values["loading_magnitude"] * pt.cast(
             batch.keying, values["loading_magnitude"].dtype
         )

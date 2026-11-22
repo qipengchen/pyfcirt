@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import partial, wraps
 
@@ -15,6 +14,7 @@ from pymc.distributions.transforms import _default_transform
 from pymc.logprob.transforms import IntervalTransform, LogTransform
 from pytensor import config, wrap_jax
 
+from pyfcirt.covariates.model import apply_person_effects
 from pyfcirt.models.categorical import StableCategorical
 from pyfcirt.models.priors import (
     bind_prior,
@@ -22,16 +22,6 @@ from pyfcirt.models.priors import (
     prior_with_parameters,
     scalar_prior_bounds,
 )
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class RegressionBinding:
-    """Native conditional inputs in the prepared target's active order."""
-
-    mean: object
-    scale: object | None
-    conditional: Mapping
-    noncentered: bool
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -334,12 +324,14 @@ class ParameterFactory:
         )
 
 
-def slot_values(batch, parameters):
+def slot_values(batch, parameters, person_effects):
     """Gather final nodes using their sole, already prepared parameter references."""
     result = {}
     for slot in batch.slots:
         # Keep a one-dimensional gather and restore the prepared kernel shape.
         values = pt.take(parameters[slot.kind].ravel(), slot.entry_index.ravel(), axis=0)
+        if slot.effects:
+            values = apply_person_effects(values, slot.effects, person_effects)
         shape = slot.entry_index.shape
         result[slot.key] = pt.specify_shape(pt.cast(values, config.floatX).reshape(shape), shape)
     return result

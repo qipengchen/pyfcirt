@@ -6,7 +6,7 @@ import pytensor.tensor as pt
 from jax import lax
 
 from pyfcirt.models import categorical
-from pyfcirt.models.graph import response_rv, slot_values
+from pyfcirt.models.graph import response_rv
 
 
 def sequential_log_probs(utility, orders, membership=None):
@@ -22,8 +22,7 @@ class _SequentialDistribution(pm.Distribution):
     """Share construction/binding; each concrete model supplies its endorsement law."""
 
     @classmethod
-    def bind(cls, spec, batch, *, ability, parameters):
-        values = slot_values(batch, parameters)
+    def bind(cls, spec, batch, *, ability, values):
         loading = values["loading_magnitude"]
         if cls.keyed:
             loading = loading * pt.cast(batch.keying, loading.dtype)

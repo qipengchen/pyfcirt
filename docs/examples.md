@@ -142,6 +142,14 @@ preparation, fitting, diagnostics and model-checking workflow.
 :::
 
 :::{grid-item-card}
+:link: tutorials/tirt_dif
+:link-type: doc
+:shadow: none
+:header: **Differential item functioning with TIRT**
+:footer: Compare three DIF priors against simulated group differences.
+:::
+
+:::{grid-item-card}
 :link: tutorials/jrt_tirt_native
 :link-type: doc
 :shadow: none
@@ -258,6 +266,7 @@ GTUM <tutorials/gtum_workflow>
 Binary and ordinal responses <tutorials/binary_ordinal_workflow>
 Models by block and item <tutorials/joint_workflow>
 Multiple groups with MGPPM <tutorials/mgppm_groups>
+Differential item functioning with TIRT <tutorials/tirt_dif>
 JRT–TIRT <tutorials/jrt_tirt_native>
 M-TCIR <tutorials/m_tcir_native>
 Statement response functions <tutorials/statement_curves>

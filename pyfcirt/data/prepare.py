@@ -26,6 +26,7 @@ from pyfcirt.data.coordinates import (
     EventLayout,
     ParameterBlock,
     ParameterLayout,
+    PersonEffect,
     PopulationLayout,
     PreparedBatch,
     PreparedRegression,
@@ -573,6 +574,11 @@ class PreparedInputs:
                 self.person_keys,
                 self.population.person_group,
                 self.population.predictors,
+                *(
+                    ([plan.design.X.values for plan in self.person_effect_regressions],)
+                    if self.person_effect_regressions
+                    else ()
+                ),
                 batches,
                 self.fixed_parameters,
             )
@@ -628,9 +634,19 @@ class PreparedInputs:
                 )
             }
             if regression.targets[0].kind != "theta":
-                encoding["rows"] = design[
-                    ["X", *(f"key_{i}" for i in range(len(encoding["id_columns"])))]
-                ]
+                if regression.person_effects:
+                    encoding["person_effects"] = regression.standardized_coefficients
+                    encoding.update(
+                        {
+                            name: design.attrs[name]
+                            for name in ("group_basis", "group_columns", "group_levels")
+                            if name in design.attrs
+                        }
+                    )
+                else:
+                    encoding["rows"] = design[
+                        ["X", *(f"key_{i}" for i in range(len(encoding["id_columns"])))]
+                    ]
                 targets = []
                 for target in regression.targets:
                     block = target.block
@@ -836,6 +852,55 @@ class PreparedInputs:
         return result
 
     @cached_property
+    def person_effect_pools(self):
+        by_kind = defaultdict(list)
+        for plan in self.person_effect_regressions:
+            lookups = {}
+            for target in plan.targets:
+                block = target.block
+                entries = block.entry_index
+                if block.ordered:
+                    entries = entries.reshape(-1, block.shape[-1])[target.local_position]
+                    pools = np.broadcast_to(target.pool_index[:, None], entries.shape)
+                else:
+                    entries = entries.ravel()[target.local_position]
+                    pools = target.pool_index
+                link = target.conditional["link"]
+                key = (block.kind, link)
+                if key not in lookups:
+                    lookups[key] = np.full(
+                        self.parameter_layouts[block.kind].fixed.size, -1, dtype=np.int64
+                    )
+                lookups[key][entries.ravel()] = pools.ravel()
+            for (kind, link), lookup in lookups.items():
+                lookup.flags.writeable = False
+                by_kind[kind].append((plan, lookup, link))
+        return MappingProxyType({kind: tuple(bindings) for kind, bindings in by_kind.items()})
+
+    def _batch_slot(self, slot, people):
+        entries = self._array(slot["entry_index"])
+        effects = []
+        for plan, lookup, link in self.person_effect_pools.get(slot["kind"], ()):
+            pools = lookup[entries.ravel()]
+            position = np.flatnonzero(pools >= 0)
+            if position.size:
+                stride = int(np.prod(entries.shape[1:]))
+                person, pool = people[position // stride], pools[position]
+                position.flags.writeable = person.flags.writeable = pool.flags.writeable = False
+                effects.append(
+                    PersonEffect(
+                        regression_name=plan.name,
+                        position=position,
+                        person=person,
+                        pool=pool,
+                        link=link,
+                    )
+                )
+        return SlotRef(
+            key=slot["key"], kind=slot["kind"], entry_index=entries, effects=tuple(effects)
+        )
+
+    @cached_property
     def batches(self) -> tuple[PreparedBatch, ...]:
         """Native batches in global observation order."""
         batches = []
@@ -878,14 +943,7 @@ class PreparedInputs:
                     if self.data.attrs["purpose"] == "observed"
                     else None
                 ),
-                slots=tuple(
-                    SlotRef(
-                        key=slot["key"],
-                        kind=slot["kind"],
-                        entry_index=self._array(slot["entry_index"]),
-                    )
-                    for slot in batch["slots"]
-                ),
+                slots=tuple(self._batch_slot(slot, people[obs]) for slot in batch["slots"]),
             )
             batches.append(value)
         return tuple(batches)
@@ -969,9 +1027,19 @@ class PreparedInputs:
                     coefficient_positions=positions,
                     coefficient_entries=entries,
                     targets=tuple(targets),
+                    standardized_coefficients=(
+                        self._array(f"{scope['name']}_standardized")
+                        if scope.get("person_effects", False)
+                        else None
+                    ),
                 )
             )
         return tuple(plans)
+
+    @cached_property
+    def person_effect_regressions(self):
+        """The regressions whose design rows correspond to current people."""
+        return tuple(plan for plan in self.regressions if plan.person_effects)
 
     @cached_property
     def theta_regression(self):
@@ -1139,6 +1207,13 @@ def _validate_parameter_support(parameters, layouts, *, fixed=None):
                 chol = jnp.linalg.cholesky(covariance, symmetrize_input=False)
                 if not bool(jnp.isfinite(chol).all()):
                     raise ValueError("covariance: covariance must be positive definite")
+                correlation = layouts.get("trait_correlation")
+                if (
+                    len(layout.shape) == 3
+                    and correlation is not None
+                    and len(correlation.shape) == 2
+                ):
+                    PopulationFactory.validate_shared_covariance(covariance)
         groups = entries.ordered_group_index.values
         # The catalogue packs each ordered group contiguously in its native order.
         consecutive = np.flatnonzero((groups[:-1] >= 0) & (groups[:-1] == groups[1:]))
@@ -1241,58 +1316,98 @@ def _new_channels(reference, responses, administration):
     return channels, tuple(people), units.keys() - responses.keys()
 
 
-def _population_inputs(reference: PreparedInputs, people, *, person_data=None, administration=None):
-    """Align replacement population inputs, or return None to reuse the frozen rows."""
+def _scheduled_person_inputs(reference, people, schedule):
+    """Validate and copy saved encodings in their frozen respondent order."""
+    constant = reference.constant_data
+    recipe = constant.attrs["population"]["recipe"]
+    person_effects = reference.person_effect_regressions
+    if schedule.attrs.get("population_recipe") != recipe:
+        raise ValueError("The generation schedule must use the frozen population recipe")
+    if tuple(schedule.person.values) != tuple(people):
+        raise ValueError("Schedule person order must match the new response people")
+    predictors, groups = schedule.predictors, schedule.person_group
+    if (
+        predictors.dims != ("person", "theta_predictor")
+        or not predictors.theta_predictor.equals(constant.theta_predictor)
+        or groups.dims != ("person",)
+        or not np.issubdtype(groups.dtype, np.integer)
+        or not np.issubdtype(predictors.dtype, np.number)
+        or not np.isrealobj(predictors.values)
+        or not np.isfinite(predictors.values).all()
+        or np.any((groups.values < 0) | (groups.values >= constant.sizes["population_group"]))
+    ):
+        raise ValueError("The generation schedule has invalid frozen population arrays")
+    if (person_effects or "calibration_identity" in schedule.attrs) and (
+        schedule.attrs.get("calibration_identity") != reference.calibration_identity
+    ):
+        raise ValueError("The generation schedule uses a different frozen design")
+    effects = {}
+    for plan in person_effects:
+        name = f"{plan.name}_person_predictors"
+        values = schedule.get(name)
+        term = f"{plan.name}_term"
+        if (
+            values is None
+            or values.dims != ("person", term)
+            or not np.array_equal(values[term], plan.design.term)
+            or values.dtype.kind != "f"
+            or not np.isfinite(values.values).all()
+        ):
+            raise ValueError("The generation schedule has invalid frozen measurement predictors")
+        effects[plan.name] = values.values.copy()
+    return predictors.values.copy(), groups.values.copy(), effects
+
+
+def _person_inputs(reference: PreparedInputs, people, *, person_data=None, administration=None):
+    """Resolve respondent inputs from a saved schedule or new covariates."""
     from pyfcirt.covariates.design import apply_design
     from pyfcirt.data.grouping import apply_groups
 
-    constant = reference.constant_data
-    recipe = constant.attrs["population"]["recipe"]
-    name = recipe["regression"]
-    design = None if name is None else reference.data[f"covariates/{name}"].dataset
     if (
         person_data is None
         and isinstance(administration, xr.Dataset)
         and "predictors" in administration
     ):
-        if administration.attrs.get("population_recipe") != recipe:
-            raise ValueError("The generation schedule must use the frozen population recipe")
-        if tuple(administration.person.values) != tuple(people):
-            raise ValueError("Schedule person order must match the new response people")
-        predictors, groups = administration.predictors, administration.person_group
-        if (
-            predictors.dims != ("person", "theta_predictor")
-            or not predictors.theta_predictor.equals(constant.theta_predictor)
-            or groups.dims != ("person",)
-            or not np.issubdtype(groups.dtype, np.integer)
-            or not np.issubdtype(predictors.dtype, np.number)
-            or not np.isrealobj(predictors.values)
-            or not np.isfinite(predictors.values).all()
-            or np.any((groups.values < 0) | (groups.values >= constant.sizes["population_group"]))
-        ):
-            raise ValueError("The generation schedule has invalid frozen population arrays")
-        return predictors.values.copy(), groups.values.copy()
+        return _scheduled_person_inputs(reference, people, administration)
+
+    constant = reference.constant_data
+    recipe = constant.attrs["population"]["recipe"]
+    name = recipe["regression"]
+    design = None if name is None else reference.data[f"covariates/{name}"].dataset
+    person_effects = reference.person_effect_regressions
     if person_data is None and tuple(people) == tuple(constant.person.values):
         return None
     grouped = recipe["group"] is not None
-    if not grouped and design is None:
-        return np.empty((len(people), 0)), np.zeros(len(people), dtype=np.int64)
-    if grouped and person_data is None:
-        raise ValueError("person_data is required for the population group column")
-    column = "person_id" if design is None else design.attrs["id_columns"][0]
-    keys = pd.DataFrame({column: pd.Series(people, dtype=object)})
-    positions, identities = align_rows(person_data, keys, (column,), "person_data")
+    if person_data is None:
+        if grouped:
+            raise ValueError("person_data is required for the population group column")
+        if person_effects:
+            raise ValueError("person_data is required for person measurement effects")
+
+    alignments = {}
+
+    def rows(column):
+        if column not in alignments:
+            keys = pd.DataFrame({column: pd.Series(people, dtype=object)})
+            alignments[column] = align_rows(person_data, keys, (column,), "person_data")
+        return alignments[column]
+
+    def replay(current):
+        (column,) = current.attrs["id_columns"]
+        return apply_design(current, person_data, *rows(column)).values
+
     groups = (
-        apply_groups(recipe, person_data, positions, identities)
+        apply_groups(
+            recipe,
+            person_data,
+            *rows("person_id" if design is None else design.attrs["id_columns"][0]),
+        )
         if grouped
         else np.zeros(len(people), dtype=np.int64)
     )
-    predictors = (
-        np.empty((len(people), 0))
-        if design is None
-        else apply_design(design, person_data, positions, identities).values
-    )
-    return predictors, groups
+    predictors = np.empty((len(people), 0)) if design is None else replay(design)
+    effects = {plan.name: replay(plan.design) for plan in person_effects}
+    return predictors, groups, effects
 
 
 def _replace_people(
@@ -1300,12 +1415,12 @@ def _replace_people(
 ) -> dict[str, xr.Dataset]:
     """Bind a replacement person axis in the candidate design groups."""
     datasets = reference._design_groups()
-    population_inputs = _population_inputs(
+    population_inputs = _person_inputs(
         reference, people, person_data=person_data, administration=administration
     )
     if population_inputs is None:
         return datasets
-    predictors, person_groups = population_inputs
+    predictors, person_groups, effects = population_inputs
     constant = datasets["/constant_data"]
     resize = len(people) != constant.sizes["person"]
     drop = {"person"}
@@ -1330,12 +1445,7 @@ def _replace_people(
     if theta_regression is None:
         result["predictors"] = ("person", "theta_predictor"), predictors
     else:
-        path = f"/covariates/{theta_regression}"
-        design = datasets[path].drop_dims("row")
-        design.coords["row"] = np.arange(len(people), dtype=np.int64)
-        design["X"] = ("row", "term"), predictors
-        design["key_0"] = "row", labels
-        datasets[path] = design
+        effects[theta_regression] = predictors
         scope = next(
             scope for scope in attrs["regression_scopes"] if scope["name"] == theta_regression
         )
@@ -1347,6 +1457,17 @@ def _replace_people(
         )
         name = target["indices"]
         result[name] = ("regression_target_field", "person", "trait"), np.stack((rows, pools))
+    for name, matrix in effects.items():
+        path = f"/covariates/{name}"
+        datasets[path] = (
+            datasets[path]
+            .drop_dims("row")
+            .assign(
+                row=np.arange(len(people), dtype=np.int64),
+                X=(("row", "term"), matrix),
+                key_0=("row", labels),
+            )
+        )
     result["person_group"] = "person", person_groups
     if person_blocks:
         arrays = LayoutBuilder(coords={}, attrs=attrs)
@@ -1447,11 +1568,15 @@ def generation_schedule(model: Model, person_ids: Sequence, *, person_data=None)
         raise ValueError("person_ids must be nonempty and unique")
     constant = model.prepared.constant_data
     recipe = constant.attrs["population"]["recipe"]
-    population = _population_inputs(model.prepared, people, person_data=person_data)
+    population = _person_inputs(model.prepared, people, person_data=person_data)
     if population is None:
         frozen = model.prepared.population
-        population = frozen.predictors, frozen.person_group
-    predictors, groups = population
+        population = (
+            frozen.predictors,
+            frozen.person_group,
+            {plan.name: plan.design.X.values for plan in model.prepared.person_effect_regressions},
+        )
+    predictors, groups, effects = population
     pair_units = constant.pair_unit.values
     pairs = np.column_stack(
         (pair_units, constant.pair_statement_1.values, constant.pair_statement_2.values)
@@ -1474,6 +1599,12 @@ def generation_schedule(model: Model, person_ids: Sequence, *, person_data=None)
             population_recipe=deepcopy(recipe),
         ),
     )
+    if effects:
+        schedule.attrs["calibration_identity"] = model.prepared.calibration_identity
+    for plan in model.prepared.person_effect_regressions:
+        term = f"{plan.name}_term"
+        schedule = schedule.assign_coords({term: plan.design.term.values.copy()})
+        schedule[f"{plan.name}_person_predictors"] = ("person", term), effects[plan.name].copy()
     return schedule.assign(
         schedule_person=(
             "schedule",
