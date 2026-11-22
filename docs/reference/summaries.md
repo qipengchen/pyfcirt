@@ -1,18 +1,24 @@
 # Summaries and plotting
 
-Inspect the specification with `Model.summary()` before fitting. Use `coef()`
-for parameter estimates and `trait_summary()` for population moments. Use the
-data coverage summary to check recorded and missing administrations.
+Inspect the model specification with
+[`model.summary()`](generated/pyfcirt.Model.summary.md) before fitting.
+
+```{toctree}
+:hidden:
+
+generated/pyfcirt.Model.summary
+```
+
+## Posterior results
 
 ```{eval-rst}
 .. autosummary::
    :toctree: generated
    :nosignatures:
 
-   ~pyfcirt.Model.summary
    ~pyfcirt.coef
    ~pyfcirt.trait_summary
-
+   ~pyfcirt.plot_ridge
 ```
 
 ## Observed response distributions
@@ -31,5 +37,4 @@ use [`model.data_summary()`](generated/pyfcirt.data_summary.md).
    ~pyfcirt.response_data
    ~pyfcirt.response_summary
    ~pyfcirt.plot_response_distribution
-   ~pyfcirt.plot_ridge
 ```

@@ -1,12 +1,9 @@
 # API reference
 
+For a first fit, follow the [Quick start](guide/getting_started.md).
+
 (workflow-overview)=
-## Everyday analysis
-
-Start at the stage that matches your task. For a first fit, follow the
-[Quick start](guide/getting_started.md).
-
-### 1. Prepare data
+## Prepare data
 
 | API | Purpose |
 | --- | --- |
@@ -21,7 +18,7 @@ Start at the stage that matches your task. For a first fit, follow the
 See [observed response distributions](reference/summaries.md#observed-response-distributions)
 for counts, proportions, and plots.
 
-### 2. Configure and fit a model
+## Configure and fit a model
 
 | API | Purpose |
 | --- | --- |
@@ -31,7 +28,7 @@ for counts, proportions, and plots.
 | [`model.prior_predictive()`](reference/generated/pyfcirt.prior_predictive.md) | Check which response patterns the priors imply before fitting. |
 | [`model.fit()`](reference/generated/pyfcirt.Model.fit.md) | Fit the model and obtain posterior draws. |
 
-### 3. Check sampling and model fit
+## Check sampling and model fit
 
 | API | Purpose |
 | --- | --- |
@@ -45,7 +42,7 @@ For convergence diagnostics, use [ArviZ summary](https://python.arviz.org/en/sta
 or [rank and distribution plots](https://python.arviz.org/projects/plots/en/stable/api/generated/arviz_plots.plot_rank_dist.html)
 with `model.idata`.
 
-### Compare models
+## Compare models
 
 | API | Purpose |
 | --- | --- |
@@ -55,7 +52,7 @@ with `model.idata`.
 
 Use the same observations and likelihood units when comparing models.
 
-### 4. Interpret and report results
+## Interpret and report results
 
 | API | Purpose |
 | --- | --- |
@@ -66,7 +63,7 @@ Use the same observations and likelihood units when comparing models.
 | [`model.information()`](reference/generated/pyfcirt.information.md) | Evaluate how much measurement information the responses provide at a trait level. |
 | [`model.reliability()`](reference/generated/pyfcirt.reliability.md) | Estimate score reliability from posterior trait scores and their uncertainty. |
 
-### 5. Score new respondents or simulate data
+## Score new respondents or simulate data
 
 | API | Purpose |
 | --- | --- |
@@ -81,11 +78,24 @@ Use the same observations and likelihood units when comparing models.
 | [`model.idata.to_netcdf()`](reference/results.md#save-and-restore-samples) | Save posterior draws and stored analysis outputs. |
 | [`model.attach_samples()`](reference/generated/pyfcirt.Model.attach_samples.md) | Attach saved posterior draws to a matching prepared model. |
 
-(full-api-index)=
-## Reference by topic
+## Advanced modeling
+
+- Use [population and covariate specifications](reference/population.md) for groups and regression formulas.
+- Use [`model.build()`](reference/generated/pyfcirt.Model.build.md) and [measurement distributions](reference/distributions.md) to work with native PyMC models.
+- See [posterior approximation](reference/posterior_approximation.md) for experimental scoring with calibration uncertainty and recursive updates.
+
+## Developer reference
+
+The [parameter and coordinate contract](reference/parameter_contract.md) describes
+prepared layouts, parameter identities and stored coordinates for integrations.
+
+See [troubleshooting](reference/troubleshooting.md) for installation and runtime errors.
+
+<span id="full-api-index"></span>
 
 ```{toctree}
 :maxdepth: 1
+:hidden:
 
 reference/data
 reference/measurement
@@ -96,42 +106,9 @@ reference/information
 reference/scoring
 reference/simulation
 reference/results
-```
-
-## Advanced modeling
-
-- Use [population and covariate specifications](reference/population.md) for groups and regression formulas.
-- Use [`model.build()`](reference/generated/pyfcirt.Model.build.md) and [measurement distributions](reference/distributions.md) to work with native PyMC models.
-- See [posterior approximation](reference/posterior_approximation.md) for experimental scoring with calibration uncertainty and recursive updates.
-
-```{toctree}
-:maxdepth: 1
-:hidden:
-
 reference/population
 reference/distributions
 reference/posterior_approximation
-```
-
-## Developer reference
-
-The [parameter and coordinate contract](reference/parameter_contract.md) describes
-prepared layouts, parameter identities and stored coordinates for integrations.
-
-```{toctree}
-:maxdepth: 1
-:hidden:
-
 reference/parameter_contract
-```
-
-## Troubleshooting
-
-See [troubleshooting](reference/troubleshooting.md) for installation and runtime errors.
-
-```{toctree}
-:maxdepth: 1
-:hidden:
-
 reference/troubleshooting
 ```
