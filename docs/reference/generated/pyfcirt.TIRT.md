@@ -56,7 +56,7 @@ import pyfcirt as fc
 declaration = fc.TIRT(link="logit", residuals="fixed")
 example = fc.load_example("tirt_study", model=declaration, n_persons=3)
 prepared = fc.PreparedInputs.from_inputs(example.data)
-print(fc.data_summary(prepared).to_string())
+print(fc.data_coverage(prepared).to_string())
 ```
 
 ```text

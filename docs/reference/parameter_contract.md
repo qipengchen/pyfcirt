@@ -73,7 +73,7 @@ its fitting auxiliaries out over the observed preference region.
 The possible answers to the original task and the outcome support of a
 likelihood factor are separate. For a triplet the six complete ranks and
 the two outcomes of each TIRT binary comparison give different counts.
-`data_summary(details=True)` reports both. Prediction keeps the categories of
+`data_coverage(details=True)` reports both. Prediction keeps the categories of
 each native batch together. Use [predictive_view()](generated/pyfcirt.predictive_view.md)
 for matching observed and replicated values. For a block with multiple response
 supports, read the native batch arrays using `response_support` instead.

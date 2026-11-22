@@ -13,7 +13,7 @@ then call [`model.prepare()`](generated/pyfcirt.Model.md#prepare-data).
    :nosignatures:
 
    ~pyfcirt.load_example
-   ~pyfcirt.data_summary
+   ~pyfcirt.data_coverage
 ```
 
 ## Design and response options

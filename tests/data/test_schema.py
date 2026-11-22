@@ -440,7 +440,7 @@ def test_graded_scale_direction_and_complete_support_are_explicit():
     unit = state.data["constant_data"].attrs["units"][0]
     assert unit["scale"]["categories"] == ["low", "equal", "high"]
     assert unit["scale"]["higher_prefers"] == "second"
-    assert fc.data_summary(state, details=True).iloc[0].n_categories == 3
+    assert fc.data_coverage(state, details=True).iloc[0].n_categories == 3
     with pytest.raises(ValueError):
         fc.PreparedInputs.from_inputs(graded_input("unknown"))
 
@@ -765,7 +765,7 @@ def test_two_trait_tirt_pair_error_names_documented_anchor_inputs():
         fc.PreparedInputs.from_inputs(fc.FCInput(design, responses, model=fc.TIRT()))
     point = fc.TIRT(loading_anchors={"left": 1.0, "right": 1.0})
     prepared = fc.PreparedInputs.from_inputs(fc.FCInput(design, responses, model=point))
-    assert fc.data_summary(prepared).index.tolist() == ["TIRT / rank"]
+    assert fc.data_coverage(prepared).index.tolist() == ["TIRT / rank"]
 
 
 @pytest.mark.parametrize(

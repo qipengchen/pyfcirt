@@ -1,6 +1,6 @@
 # PyFCIRT
 
-Bayesian forced-choice modeling in Python.
+Bayesian forced-choice modeling in Python and R.
 
 [![Checks](https://github.com/qipengchen/pyfcirt/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/qipengchen/pyfcirt/actions/workflows/ci.yml)
 [![Coverage](https://codecov.io/gh/qipengchen/pyfcirt/branch/main/graph/badge.svg)](https://codecov.io/gh/qipengchen/pyfcirt)
@@ -11,8 +11,8 @@ Bayesian forced-choice modeling in Python.
 
 ## Overview
 
-PyFCIRT is a high-level Bayesian forced-choice modeling interface written in
-Python. Built on the [PyMC](https://github.com/pymc-devs/pymc) probabilistic
+PyFCIRT is a high-level Bayesian forced-choice modeling interface with
+Python and R APIs. Built on the [PyMC](https://github.com/pymc-devs/pymc) probabilistic
 programming framework, it is designed to make forced-choice models easy to
 specify, fit, and evaluate. GPU-accelerated sampling is available through JAX.
 
@@ -131,6 +131,38 @@ prior prediction, diagnostics and model checks, and use the
 [API reference](https://qipengchen.github.io/pyfcirt/api.html) for individual calls.
 Use [Prepare your data](https://qipengchen.github.io/pyfcirt/reference/generated/pyfcirt.ResponseTable.html) to define
 your own design and read CSV or spreadsheet responses.
+
+## Quick start in R
+
+Install the R development package from the source checkout. In R, install
+`ggplot2`, `posterior`, and `reticulate` if needed. Then run these commands
+from the repository root in the Python environment that R will use. Set
+`RETICULATE_PYTHON` to that environment's Python executable before starting R.
+
+```console
+python -m pip install ".[io,covariates,numpyro]"
+R CMD INSTALL r/pyfcirt
+```
+
+Fit TIRT to the same 100 respondents and 24 triplets as in the Python example.
+
+```r
+library(pyfcirt)
+
+example <- load_example("tirt_study", model = "TIRT")
+head(example$design, 3)
+head(example$responses, 3)
+
+m <- model()
+m$add_fc(example$design, example$responses, format = example$format,
+         model = "TIRT", response_format = example$response_format)
+m$prepare()
+m$fit(random_seed = 42L)
+coef(m, blocks = "B1", kind = "stats", digits = 2L)
+```
+
+See the [R examples](https://qipengchen.github.io/pyfcirt/examples.html#r-examples)
+and [R API reference](https://qipengchen.github.io/pyfcirt/reference/r_api.html).
 
 <!-- quick-start-end -->
 

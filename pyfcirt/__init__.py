@@ -22,7 +22,7 @@ from pyfcirt.analysis.reliability import (
     information_reliability,
     reliability,
 )
-from pyfcirt.analysis.summary import coef, data_summary, response_data, response_summary
+from pyfcirt.analysis.summary import coef, data_coverage, response_counts, response_data
 from pyfcirt.analysis.traits import trait_summary
 from pyfcirt.covariates.specification import Regression, RegressionOptions
 from pyfcirt.data import (
@@ -94,9 +94,9 @@ __all__ = [
     "UnitIntervalScale",
     "generation_schedule",
     "load_example",
-    "data_summary",
+    "data_coverage",
     "response_data",
-    "response_summary",
+    "response_counts",
     "coef",
     "trait_summary",
     "parameter_point",

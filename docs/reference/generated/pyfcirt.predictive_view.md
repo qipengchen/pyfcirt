@@ -21,6 +21,7 @@ Align the observed and replicated answers for a single unit.
 xarray.DataTree
 : `observed_data.response(obs)` and `posterior_predictive.response(chain, draw, obs)`
   or its prior-predictive counterpart. They share the original `obs` IDs.
+  `response_support` describes the selected unit's category values or patterns.
 
 ## Examples
 

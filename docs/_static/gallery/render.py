@@ -200,7 +200,7 @@ def render(data, output):
     ]:
         example = fc.load_example(f"simulated_{slug}", model=model, n_persons=50)
         prepared = fc.PreparedInputs.from_inputs(example.data)
-        counts = fc.response_summary(fc.response_data(prepared, blocks=["B1"]))
+        counts = fc.response_counts(fc.response_data(prepared, blocks=["B1"]))
         fig, ax = canvas()
         sns.barplot(
             data=counts, x="proportion", y="category_label", color="C0", errorbar=None, ax=ax

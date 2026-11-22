@@ -143,7 +143,9 @@ projection, not a serialized live graph, prior operator or Formulae encoder.
   tests do not run calibration/scoring MCMC.
 - `docs/` owns public API/data contracts, mathematical explanations and executed
   user examples. `scripts/` owns explicit developer/validation workflows.
-- `.github/workflows/` owns CI automation; it does not define model semantics.
+- /pyfcirt/ owns the R interface and conversion to R analysis objects. Python
+  remains responsible for preparation, model semantics, inference and persistence.
+- .github/workflows/ owns CI automation; it does not define model semantics.
 
 Do not add a generic utility, registry or parallel schema when an owner above
 already provides the operation. Different mathematical tasks may legitimately

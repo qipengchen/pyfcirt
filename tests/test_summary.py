@@ -36,12 +36,12 @@ def test_data_summary_without_posterior_or_graph(monkeypatch):
     model = mixed_model()
     before = model.idata.copy(deep=True)
     monkeypatch.setattr(fc.Model, "build", lambda self: pytest.fail("summary assembled a graph"))
-    summary = fc.data_summary(model)
-    pd.testing.assert_frame_equal(summary, fc.data_summary(model))
+    summary = fc.data_coverage(model)
+    pd.testing.assert_frame_equal(summary, fc.data_coverage(model))
     assert summary.index.name == "model_response_format"
     assert summary.loc["MGPPM / pick", "n_blocks"] == 1
-    blocks = fc.data_summary(model, by="block", details=True)
-    items = fc.data_summary(model, by="item", details=True)
+    blocks = fc.data_coverage(model, by="block", details=True)
+    items = fc.data_coverage(model, by="item", details=True)
     assert blocks.index.name == "block" and items.index.name == "item"
     assert blocks.loc["7", "model_response_format"] == "MGPPM / pick"
     assert blocks.loc["7", "n_answered"] == 1
@@ -103,7 +103,7 @@ def test_data_summary_separates_declared_answers_and_fitted_factor_support():
     )
     with pytest.warns(UserWarning, match="Statements without observed comparisons"):
         prepared = fc.PreparedInputs.from_inputs(inputs)
-    summary = fc.data_summary(prepared, by="block", details=True)
+    summary = fc.data_coverage(prepared, by="block", details=True)
     assert summary.n_obs.to_dict() == {"pairwise": 3, "unanswered": 0, "joint": 2, "continuous": 1}
     assert summary.n_categories.iloc[:3].tolist() == [2, 2, (2, 6)]
     assert summary.n_response_categories.iloc[:3].tolist() == [6, 6, 6]
@@ -121,7 +121,7 @@ def test_model_summary_reads_class_metadata_without_restoring_prior_graphs(monke
     with monkeypatch.context() as context:
         context.setattr(fc.PreparedInputs, "observed_data", property(unexpected_reconstruction))
         assert "MGPPM" in model.summary()
-    assert fc.data_summary(model, by="item", details=True).loc["pair", "link"] == "logit"
+    assert fc.data_coverage(model, by="item", details=True).loc["pair", "link"] == "logit"
 
 
 def test_tirt_overview_is_compact_and_distinguishes_blocks_from_comparisons(monkeypatch):
@@ -147,10 +147,10 @@ def test_tirt_overview_is_compact_and_distinguishes_blocks_from_comparisons(monk
         "B24",
     ):
         assert internal not in text
-    overview = fc.data_summary(model)
+    overview = fc.data_coverage(model)
     assert overview.columns.tolist() == ["n_blocks", "size", "n_persons", "n_answered", "n_missing"]
     assert overview.loc["TIRT"].tolist() == [24, 3, 100, 2400, 0]
-    assert fc.data_summary(model, details=True).loc["TIRT", "n_obs"] == 7200
+    assert fc.data_coverage(model, details=True).loc["TIRT", "n_obs"] == 7200
     detailed = model.summary(details=True)
     assert "B24" in detailed and "Blocks/items:" in detailed and "fixed=0.5" in detailed
     xr.testing.assert_identical(model.idata, before)
@@ -181,7 +181,7 @@ def test_joint_fc_summary_has_one_population_and_family_owned_priors():
     assert "6 pair comparisons; 2 block events" in text
     priors = text.split("Priors:", 1)[1].split("Constraints:", 1)[0]
     assert "  TIRT:" in priors and "  MGPPM:" in priors
-    overview = fc.data_summary(model)
+    overview = fc.data_coverage(model)
     assert overview.n_persons.tolist() == [2, 2]
     assert overview.n_answered.tolist() == [2, 2]
     assert overview.n_blocks.sum() == 2
@@ -212,7 +212,7 @@ def test_distinct_measurement_laws_are_not_hidden_by_compact_grouping(difference
     )
     analysis = fc.Model(fc.PreparedInputs.from_inputs(replace(example.data, blocks=blocks)))
     text = analysis.summary()
-    overview = fc.data_summary(analysis)
+    overview = fc.data_coverage(analysis)
     if difference == "prior":
         assert "mu=0.25, sigma=0.3" in text and "scope=('B2',)" in text
         assert len(overview) == 1  # data counts are independent of parameter priors
@@ -248,14 +248,14 @@ def test_grouped_counts_deduplicate_people_and_preserve_recorded_statuses():
         ),
     )
     model = fc.Model(fc.PreparedInputs.from_inputs(data))
-    row = fc.data_summary(model, details=True).loc["DichotomousIRT"]
+    row = fc.data_coverage(model, details=True).loc["DichotomousIRT"]
     assert row.n_items == 2 and row.n_persons == 4
     assert row.n_answered == 3 and row.n_missing == 1
     assert row.n_refused == 1 and row.n_not_administered == 1 and row.n_obs == 3
-    assert fc.data_summary(model, by="block").empty
-    assert fc.data_summary(model, by="block").index.name == "block"
+    assert fc.data_coverage(model, by="block").empty
+    assert fc.data_coverage(model, by="block").index.name == "block"
     with pytest.raises(ValueError, match="by must"):
-        fc.data_summary(model, by="unknown")
+        fc.data_coverage(model, by="unknown")
 
 
 def test_generation_summary_retains_unknown_answers_and_absent_channel():
@@ -268,10 +268,10 @@ def test_generation_summary_retains_unknown_answers_and_absent_channel():
         administration=pd.DataFrame({"person_id": [1], "item_id": ["a"], "status": ["scheduled"]}),
     )
     state = fc.PreparedInputs.from_inputs(data, purpose="generate")
-    result = fc.data_summary(state, details=True)
+    result = fc.data_coverage(state, details=True)
     assert result.n_persons.tolist() == [1] and result.n_obs.tolist() == [0]
     assert result[["n_answered", "n_missing", "n_refused", "n_not_administered"]].isna().all().all()
-    assert fc.data_summary(state, by="block", details=True).empty
+    assert fc.data_coverage(state, by="block", details=True).empty
 
 
 def test_coef_native_statistics_fixed_rows_and_colliding_ids(monkeypatch):
@@ -587,6 +587,15 @@ def test_shared_statement_statistics_are_computed_once_then_associated_with_bloc
     assert len(shared) == 2
     loading = next(layout for layout in layouts if layout.kind == "loading")
     position = np.flatnonzero(loading.entry_data.statement_index.values == 0)
+    from pyfcirt.analysis.summary import _select_posterior_draws
+
+    selected = _select_posterior_draws(
+        model, ["loading"], {"block": ["7", "pair"], "statement": ["a"]}
+    )
+    xr.testing.assert_identical(
+        selected.loading,
+        model.idata["posterior"].loading.isel(loading_id=position),
+    )
     native_shared = native(
         model.idata["posterior"].to_dataset()[[loading.kind]].isel({loading.dims[0]: position}),
         kind="stats",
@@ -674,7 +683,7 @@ def test_comparison_coefficients_use_the_frozen_pair_dimension(count, names, hig
     np.testing.assert_allclose(result["mean"], np.tile(np.arange(count - 1), 3))
     assert "model_response_format" not in result
     assert result.attrs["model_response_format"] == "TIRT"
-    summary = fc.data_summary(model, by="block", details=True)
+    summary = fc.data_coverage(model, by="block", details=True)
     assert summary.loc["triple", "link"] == ("ordered_probit" if count > 2 else "probit")
     assert summary.loc["triple", "n_categories"] == count
     assert summary.loc["triple", "n_persons"] == 1
@@ -1589,7 +1598,7 @@ def test_response_tables_preserve_integer_ids_across_fc_and_items(first_id):
     state = fc.PreparedInputs.from_inputs((fc_input, item_input))
     before = state.data.copy(deep=True)
     long = fc.response_data(state)
-    summary = fc.response_summary(long)
+    summary = fc.response_counts(long)
     for axis in ("block", "item"):
         selected = long.loc[long[axis].notna()]
         assert selected[axis].drop_duplicates().tolist() == ids
@@ -1624,7 +1633,7 @@ def test_response_display_labels_do_not_merge_cascading_collisions(categories):
     )
     state = fc.PreparedInputs.from_inputs(source)
     long = fc.response_data(state)
-    summary = fc.response_summary(long)
+    summary = fc.response_counts(long)
     assert summary.category.tolist() == list(categories)
     assert summary.category_label.is_unique
     assert summary["count"].tolist() == list(range(1, len(categories) + 1))
@@ -1938,3 +1947,28 @@ def test_regression_coef_canonical_kinds_follow_component_metadata(kind):
     assert len(actual) and actual.index.is_unique
     if kind == "regression_coefficient":
         assert set(actual.index.get_level_values("target")) == {"theta", "loading"}
+
+
+def test_r_posterior_label_export_roundtrips_large_integers_and_literal_strings():
+    from types import SimpleNamespace
+
+    from pyfcirt.analysis.summary import _draw_labels, _select_posterior_draws
+
+    prepared = mixed_model().prepared
+    wide = 2**53 + 1
+    for people in ([wide - 1, wide], ["integer:9007199254740992", "integer:9007199254740993"]):
+        samples = xr.Dataset(
+            {"theta": (("chain", "draw", "person"), [[[1, 2], [3, 4]]])},
+            coords={"chain": [0], "draw": [wide - 1, wide], "person": people},
+        )
+        model = SimpleNamespace(
+            prepared=prepared, idata=xr.DataTree.from_dict({"posterior": samples})
+        )
+        selected = _select_posterior_draws(
+            model,
+            ["theta"],
+            {"draw": [_draw_labels(samples.draw)[1]], "person": [_draw_labels(samples.person)[1]]},
+        )
+        assert selected.theta.item() == 4
+        assert selected.person.item() == people[1]
+        assert selected.draw.item() == wide

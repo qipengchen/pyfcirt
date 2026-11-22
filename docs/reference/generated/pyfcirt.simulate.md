@@ -51,7 +51,7 @@ Model
 : Independent, unfitted model with simulated responses. The
   `parameters/generation` group contains the generating values in their
   final axes. Use `response_data()` to display the generated answers and
-  `data_summary()` to count them.
+  `data_coverage()` to count them.
 
 ## Examples
 
@@ -64,7 +64,7 @@ Generate four respondents on two triplets using MGPPM.
 import pyfcirt as fc
 
 generated = fc.simulate("MGPPM", n_persons=4, n_blocks=2, random_seed=42)
-print(generated.data_summary().to_string())
+print(generated.data_coverage().to_string())
 ```
 
 ```text

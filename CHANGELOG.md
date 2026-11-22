@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Add an R interface for fitting, analysis, scoring and posterior draws.
+- Rename Python `data_summary()` to `data_coverage()` and `response_summary()`
+  to `response_counts()`.
+
 ## 0.1.0b1
 
 - Prepare the first public beta, including CPU distribution and installation checks.

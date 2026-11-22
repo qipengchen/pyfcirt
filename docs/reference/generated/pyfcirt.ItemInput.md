@@ -64,7 +64,7 @@ ratings = pd.DataFrame(
 )
 answers = fc.ResponseTable(ratings, format="item_long")
 inputs = fc.ItemInput(design, answers, model="GPCM", categories=(0, 1, 2, 3, 4))
-print(fc.data_summary(fc.Model().prepare(inputs)).to_string())
+print(fc.data_coverage(fc.Model().prepare(inputs)).to_string())
 ```
 
 ```text
@@ -86,7 +86,7 @@ mixed = fc.ItemInput(
     categories=(0, 1, 2, 3, 4),
     items=(fc.ItemOverride("I3", model="DichotomousIRT", categories=(0, 1)),),
 )
-print(fc.data_summary(fc.Model().prepare(mixed)).to_string())
+print(fc.data_coverage(fc.Model().prepare(mixed)).to_string())
 ```
 
 ```text

@@ -284,7 +284,7 @@ def test_block_and_comparison_encodings_keep_the_original_response_format(respon
         c = state.data["constant_data"]
         assert c.attrs["units"][0]["response_format"] == response_format
         assert all(b["events"]["response_format"] == response_format for b in c.attrs["batches"])
-        assert fc.data_summary(state).index[0].endswith(" / " + response_format)
+        assert fc.data_coverage(state).index[0].endswith(" / " + response_format)
     assert (
         states[0].data["constant_data"].sizes["obs"] == states[1].data["constant_data"].sizes["obs"]
     )
@@ -327,7 +327,7 @@ def test_missing_administration_does_not_fabricate_events():
         ignore_index=True,
     )
     state = fc.PreparedInputs.from_inputs(replace(source, administration=administration))
-    summary = fc.data_summary(state, by="block", details=True)
+    summary = fc.data_coverage(state, by="block", details=True)
     assert summary.loc["pair", "n_missing"] == 1
     assert summary.loc["pair", "n_obs"] == 2
 

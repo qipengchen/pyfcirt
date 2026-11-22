@@ -82,7 +82,7 @@ def test_prepare_updates_the_same_model_only_after_success():
     assert model.prepare(inputs, theta_parameterization="noncentered") is model
     assert model._built is None
     assert model.prepared.population.theta_parameterization == "noncentered"
-    assert model.data_summary().equals(fc.data_summary(model.prepared))
+    assert model.data_coverage().equals(fc.data_coverage(model.prepared))
     assert isinstance(model.build(), pm.Model)
     prepared, results, graph = model.prepared, model.idata, model.build()
     with pytest.raises(ValueError, match="already prepared"):
@@ -179,7 +179,7 @@ def test_registered_channels_prepare_together_and_can_be_corrected():
     assert model.prepared.calibration_identity == expected.calibration_identity
     assert model.prepared.scoring_batch_identity == expected.scoring_batch_identity
     xr.testing.assert_identical(model.prepared.observed_data, expected.observed_data)
-    assert model.data_summary().equals(fc.data_summary(expected))
+    assert model.data_coverage().equals(fc.data_coverage(expected))
     with pytest.raises(ValueError, match="already prepared"):
         model.add_items(items.design, items.responses.frame, format="item_long")
 
