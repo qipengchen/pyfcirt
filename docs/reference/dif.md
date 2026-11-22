@@ -6,7 +6,7 @@ to define group differences in the trait distribution independently.
 
 ## Add DIF terms
 
-```python
+```text
 model.add_dif_terms(
     targets, *, person_data, formula=None, groups=(), id="person_id",
     pooling="unit", prior="hierarchical", prior_options=None, overrides=None,
@@ -71,7 +71,7 @@ measurement parameter's scale when choosing prior overrides.
 
 ## Summarize DIF
 
-```python
+```text
 model.dif_summary(contrasts=None, *, at=None, prob=0.95, significant_only=False)
 ```
 

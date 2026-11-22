@@ -2455,7 +2455,7 @@ def test_factory_person_id_forms_retain_group_and_formula_alignment(
     formulae, person_id, grouped, mapping, monkeypatch
 ):
     from pyfcirt.covariates import design as covariate_design
-    from pyfcirt.data import grouping
+    from pyfcirt.data import grouping, regressions
 
     calls = []
     align = grouping.align_rows
@@ -2466,6 +2466,7 @@ def test_factory_person_id_forms_retain_group_and_formula_alignment(
 
     monkeypatch.setattr(grouping, "align_rows", count_alignment)
     monkeypatch.setattr(covariate_design, "align_rows", count_alignment)
+    monkeypatch.setattr(regressions, "align_rows", count_alignment)
     source = item_input(pd.DataFrame({"item_id": list("abc"), "trait": ["A"] * 3}))
     source = replace(
         source,

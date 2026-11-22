@@ -14,6 +14,7 @@ from pytensor.graph.replace import graph_replace
 from scipy.special import expit, logsumexp
 from scipy.stats import beta, norm
 
+from pyfcirt.covariates.pairwise import PairwiseL1
 from pyfcirt.models import dist, likert, mgppm, sequential
 from pyfcirt.models.thurstonian import gtum, rank, tirt
 from tests.reference.likert import subjective_log_probs
@@ -22,8 +23,9 @@ from tests.reference.sequential import scalar_odds, scalar_probabilities
 from tests.reference.thurstonian import gtum_log_probs, tirt_log_probs
 
 
-def test_public_measurement_distribution_exports_use_native_classes():
+def test_public_distribution_exports_use_native_classes():
     native = (
+        PairwiseL1,
         likert.DichotomousIRTDistribution,
         likert.GGUMDistribution,
         likert.GPCMDistribution,

@@ -220,7 +220,9 @@ def fit_design(
     if not terms:
         raise ValueError(f"{context} has no design columns; an empty regression is unnecessary")
     if not include_intercept and "Intercept" in spec.priors:
-        raise ValueError(f"{context}: the base model provides the intercept")
+        raise ValueError(
+            f"{context}: omit the Intercept prior because the base model provides the intercept"
+        )
     if unknown := spec.priors.keys() - {*terms, "common"}:
         raise ValueError(f"{context} has priors for unknown design columns: {sorted(unknown)!r}")
     divisors = {}
