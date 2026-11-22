@@ -145,7 +145,7 @@ preparation, fitting, diagnostics and model-checking workflow.
 :link: tutorials/tirt_dif
 :link-type: doc
 :shadow: none
-:header: **Differential item functioning with TIRT**
+:header: **Differential item functioning with TIRT** (experimental)
 :footer: Compare three DIF priors against simulated group differences.
 :::
 

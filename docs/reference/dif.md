@@ -1,5 +1,7 @@
 # Differential item functioning
 
+**Experimental.** The DIF API and defaults may change.
+
 Specify respondent characteristics that may change measurement parameters at
 the same trait level. Use [population and covariate specifications](population.md)
 to define group differences in the trait distribution independently.

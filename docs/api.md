@@ -27,7 +27,7 @@ for counts, proportions, and plots.
 | [`model.set_priors()`](reference/generated/pyfcirt.Model.set_priors.md) | Override selected default priors. |
 | [`model.available_covariate_targets()`](reference/generated/pyfcirt.Model.available_covariate_targets.md) | Find the parameters that can use covariates and the tables they need. |
 | [`model.add_regressions()`](reference/generated/pyfcirt.Model.add_regressions.md) | Add covariates to trait scores or measurement parameters. |
-| [`model.add_dif_terms()`](reference/dif.md#add-dif-terms) | Add respondent predictors to selected measurement parameters. |
+| [`model.add_dif_terms()`](reference/dif.md#add-dif-terms) | Add respondent predictors to selected measurement parameters (experimental). |
 | [`model.prior_predictive()`](reference/generated/pyfcirt.prior_predictive.md) | Check which response patterns the priors imply before fitting. |
 | [`model.fit()`](reference/generated/pyfcirt.Model.fit.md) | Fit the model and obtain posterior draws. |
 
@@ -60,7 +60,7 @@ Use the same observations and likelihood units when comparing models.
 | API | Purpose |
 | --- | --- |
 | [`model.coef()`](reference/generated/pyfcirt.coef.md) | Summarize measurement parameters and their posterior uncertainty. |
-| [`model.dif_summary()`](reference/dif.md#summarize-dif) | Summarize posterior DIF contrasts between respondent profiles. |
+| [`model.dif_summary()`](reference/dif.md#summarize-dif) | Summarize posterior DIF contrasts between respondent profiles (experimental). |
 | [`model.trait_summary()`](reference/generated/pyfcirt.trait_summary.md) | Summarize population trait means, standard deviations, and correlations. |
 | [`model.idata.posterior["theta"]`](reference/results.md#inspect-or-export-results) | Access the posterior draws for each respondent's trait scores. |
 | [`fc.plot_ridge()`](reference/generated/pyfcirt.plot_ridge.md) | Plot the posterior distributions of selected trait scores. |
