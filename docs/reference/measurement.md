@@ -9,17 +9,17 @@ process it assumes, and the response format used in the questionnaire. Dominance
 models describe monotonic endorsement or utility; ideal-point (unfolding) models
 allow endorsement or utility to peak near a statement's location.
 
-| Model name | Block decomposition | Response process | Test / response format |
-| --- | --- | --- | --- |
-| [TIRT](../models/tirt.md) | Pairwise | Dominance | RANK, PICK, MOLE; binary, graded or continuous pair ratings |
-| [TIRTRank](../models/tirt_rank.md) | Pairwise | Dominance | RANK, PICK, MOLE |
-| [2PLM-RANK](../models/two_pl_rank.md) (`TwoPLRank`) | Sequential | Dominance | RANK, PICK, MOLE |
-| [GGUM-RANK](../models/ggum_rank.md) (`GGUMRank`) | Sequential | Ideal point | RANK, PICK, MOLE |
-| [GTUM](../models/gtum.md) | Pairwise | Ideal point | RANK, PICK, MOLE; binary, graded or continuous pair ratings |
-| [MGPPM](../models/mgppm.md) | Ranking pattern | Dominance | RANK, PICK, MOLE; graded ratings for two-statement blocks |
-| [Dichotomous IRT](../models/single_items.md#dichotomous-irt) (1PL–4PL) | — | Dominance | Binary item responses |
-| [GPCM](../models/single_items.md#gpcm) | — | Dominance | Ordered item categories |
-| [GGUM](../models/single_items.md#ggum) | — | Ideal point | Ordered item categories |
+| Model name | Block decomposition | Response process | Test / response format | Likelihood unit |
+| --- | --- | --- | --- | --- |
+| [TIRT](../models/tirt.md) | Pairwise | Dominance | RANK, PICK, MOLE; binary, graded or continuous pair ratings | Statement pair |
+| [TIRTRank](../models/tirt_rank.md) | Pairwise | Dominance | RANK, PICK, MOLE | Joint block response |
+| [2PLM-RANK](../models/two_pl_rank.md) (`TwoPLRank`) | Sequential | Dominance | RANK, PICK, MOLE | Joint block response |
+| [GGUM-RANK](../models/ggum_rank.md) (`GGUMRank`) | Sequential | Ideal point | RANK, PICK, MOLE | Joint block response |
+| [GTUM](../models/gtum.md) | Pairwise | Ideal point | RANK, PICK, MOLE; binary, graded or continuous pair ratings | Statement pair |
+| [MGPPM](../models/mgppm.md) | Ranking pattern | Dominance | RANK, PICK, MOLE; graded ratings for two-statement blocks | Joint block response |
+| [Dichotomous IRT](../models/single_items.md#dichotomous-irt) (1PL–4PL) | — | Dominance | Binary item responses | Individual item |
+| [GPCM](../models/single_items.md#gpcm) | — | Dominance | Ordered item categories | Individual item |
+| [GGUM](../models/single_items.md#ggum) | — | Ideal point | Ordered item categories | Individual item |
 
 The sequential-selection, pairwise-comparison and ranking-pattern distinction
 follows [Furr and Fu (2025)](https://doi.org/10.1017/psy.2025.10054).
