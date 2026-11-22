@@ -19,6 +19,8 @@ parameters. Use one target string or a sequence, such as `"fc.cutpoints"`,
 target. Only free, supported parameters receive effects. An ordered cutpoint
 vector must be entirely free. Its responder offset shifts every boundary
 together and preserves their order.
+Use [available_covariate_targets(kind="dif")](generated/pyfcirt.Model.available_covariate_targets.md)
+to see the eligible targets for the prepared design.
 
 - **person_data, id** identify the respondent feature table and its ID column.
   Supply one row per respondent. Use string, boolean, or pandas categorical

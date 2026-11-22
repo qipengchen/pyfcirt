@@ -1037,6 +1037,48 @@ def test_person_effect_slopes_scale_with_training_units_and_keep_explicit_priors
     assert_allclose(effects, np.column_stack((z, 2 * b, z * b)))
 
 
+def test_available_covariate_targets_follow_mixed_design_and_fixed_roles(formulae):
+    source, _ = cutpoint_input()
+    source = replace(
+        source,
+        model=fc.TIRT(residuals="fixed", loading_anchors={"a": 0.9, "b": 1.1}),
+        blocks=(fc.BlockSpec("three", model=fc.GTUM()), source.blocks[1]),
+    )
+    item = item_input(
+        pd.DataFrame({"item_id": ["a", "b"], "trait": ["A", "A"]}),
+        model=fc.DichotomousIRT(kind="1PL"),
+    )
+    model = fc.Model().prepare((source, item))
+    before = model.prepared
+    targets = model.available_covariate_targets()
+    assert model.prepared is before
+    assert set(model.available_covariate_targets(level="person").target) == {"theta"}
+    assert set(model.available_covariate_targets(level="item").target) == {"items.intercept"}
+    assert "fc.residual_variance" not in set(targets.target)
+    assert model.available_covariate_targets(level="person", kind="dif").empty
+    with pytest.raises(ValueError, match="level must be"):
+        model.available_covariate_targets(level="cutpoint")
+    with pytest.raises(ValueError, match="kind must be"):
+        model.available_covariate_targets(kind="unknown")
+
+    statement = model.available_covariate_targets(level="statement", kind="regression")
+    target = ("fc", "GTUM", "loading_magnitude")
+    gtum = statement.loc[statement.target.map(lambda value: value == target)].iloc[0]
+    assert gtum.predictor_level == "statement"
+    features = pd.DataFrame({"statement_id": list("abcdefgh"), "length": np.arange(8)})
+    model.add_regressions({gtum.target: fc.Regression("length", features, id="statement_id")})
+    (plan,) = model.prepared.regressions
+    assert {
+        model.prepared.constant_data.unit_model.values[unit]
+        for bound in plan.targets
+        for unit in bound.unit_indices
+    } == {"GTUM"}
+
+    pairs = model.available_covariate_targets(level="pair", kind="dif")
+    assert set(pairs.target) == {"fc.TIRT.cutpoints", "fc.GTUM.cutpoints"}
+    assert set(pairs.predictor_level) == {"person"}
+
+
 def test_model_qualified_priors_share_one_formula_and_preserve_other_models(formulae):
     source, _ = cutpoint_input()
     tirt = fc.TIRT(loading_anchors={"a": 0.9, "b": 1.1})

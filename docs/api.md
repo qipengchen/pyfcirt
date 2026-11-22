@@ -25,6 +25,7 @@ for counts, proportions, and plots.
 | --- | --- |
 | [`model.summary()`](reference/generated/pyfcirt.Model.summary.md) | Review the prepared model, its data, and its parameter settings. |
 | [`model.set_priors()`](reference/generated/pyfcirt.Model.set_priors.md) | Override selected default priors. |
+| [`model.available_covariate_targets()`](reference/generated/pyfcirt.Model.available_covariate_targets.md) | Find the parameters that can use covariates and the tables they need. |
 | [`model.add_regressions()`](reference/generated/pyfcirt.Model.add_regressions.md) | Add covariates to trait scores or measurement parameters. |
 | [`model.add_dif_terms()`](reference/dif.md#add-dif-terms) | Add respondent predictors to selected measurement parameters. |
 | [`model.prior_predictive()`](reference/generated/pyfcirt.prior_predictive.md) | Check which response patterns the priors imply before fitting. |

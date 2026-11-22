@@ -709,18 +709,22 @@ def test_dif_targets_feed_each_native_measurement_law(declaration, kind, targets
     import pandas as pd
 
     import pyfcirt as fc
-    from pyfcirt.data.regressions import prepare_regressions
 
     pytest.importorskip("formulae")
     source = declaration_input(declaration, kind)
     model = fc.Model(source)
     people = pd.DataFrame({"person_id": [1, 2], "site": ["A", "B"]})
     channel = "items" if isinstance(source, fc.ItemInput) else "fc"
-    regression = fc.Regression("site", people, id="person_id", parameter_residual_sd=0.3)
-    model._update_parameters(
-        prepare_regressions,
-        [((channel, target), regression) for target in targets],
-        person_effects=True,
+    available = model.available_covariate_targets(kind="dif").set_index("target")
+    selection = available.loc[[f"{channel}.{target}" for target in targets]]
+    assert set(selection.predictor_level) == {"person"}
+    if "response_precision" in targets:
+        assert selection.loc["fc.response_precision", "level"] == "measurement"
+    model.add_dif_terms(
+        selection.index.tolist(),
+        person_data=people,
+        groups="site",
+        prior_options={"parameter_residual_sd": 0.3},
     )
     prepared = model.prepared
     for slot in (slot for batch in prepared.batches for slot in batch.slots if slot.key in targets):

@@ -150,6 +150,12 @@ def validate_formula(formula: str) -> tuple[str, ...]:
     return features
 
 
+def _measurement_level(channel, parameter):
+    if parameter == "cutpoints":
+        return "pair"
+    return "statement" if channel == "fc" else "item"
+
+
 def regression_declarations(
     formulas,
     *,
@@ -199,9 +205,7 @@ def regression_declarations(
             target, entity = label, "person"
         elif len(parts) == 2 and parts[0] in {"fc", "items"} and parts[1]:
             target = tuple(parts)
-            entity = (
-                "pair" if parts[1] == "cutpoints" else ("statement" if parts[0] == "fc" else "item")
-            )
+            entity = _measurement_level(*target)
         else:
             raise ValueError(
                 f"Line {number}: target must be theta, fc.parameter or items.parameter"

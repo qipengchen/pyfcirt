@@ -11,7 +11,8 @@ Add fixed-effect predictors to a prepared model before estimation.
 `formulas` : str or mapping
 : One `target ~ predictors` line per target, or a mapping from targets to
   `Regression` objects. In mapping form, each regression supplies its own
-  table, IDs and options.
+  table, IDs and options. Use a tuple such as `("fc", "TIRT", "cutpoints")`
+  to select one measurement model in a mixed design.
 
 `person_data`, `statement_data`, `item_data` : pandas.DataFrame or None
 : Feature tables keyed by `person_id`, `statement_id` or `item_id`.
@@ -38,6 +39,9 @@ None
 
 ## Notes
 
+Use [available_covariate_targets()](pyfcirt.Model.available_covariate_targets.md)
+to find the regression targets and predictor tables for the current design.
+
 Use `theta` with a person table, `fc.loading_magnitude` with a statement
 table, `fc.cutpoints` with a pair table, and item parameters with an item
 table. The [supported targets](pyfcirt.Regression.md#supported-measurement-targets)
@@ -54,7 +58,9 @@ the training feature encoding with the unqualified formula.
 ### String formula
 
 
-Four people have a continuous predictor and a categorical predictor. The fitted axis includes their interaction.
+Four people have a continuous predictor and a categorical predictor.
+After preparing the model, look up the person-level target before writing
+the formula.
 
 ```python
 import pandas as pd
@@ -66,6 +72,21 @@ people = pd.DataFrame({"person_id": ids, "study_hours": [1.0, 3.0, 2.0, 6.0]})
 
 people["site"] = ["A", "A", "B", "B"]
 model = fc.Model(bundle.data)
+```
+
+```python
+print(model.available_covariate_targets(level="person").to_string(index=False))
+```
+
+```text
+target model  level       kind predictor_level
+ theta  None person regression          person
+```
+
+Use `theta` on the left side of the formula and supply the indicated person table.
+The fitted predictor axis includes the interaction.
+
+```python
 model.add_regressions("theta ~ study_hours * site", person_data=people)
 print(model.prepared.coords["theta_predictor"].tolist())
 ```

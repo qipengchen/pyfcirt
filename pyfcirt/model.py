@@ -389,9 +389,24 @@ class Model:
             raise ValueError("Approximation omits evidence already committed by the reference")
         return people
 
+    def available_covariate_targets(
+        self,
+        level: Literal["person", "statement", "pair", "item", "measurement"] | None = None,
+        *,
+        kind: Literal["regression", "dif"] | None = None,
+    ) -> pd.DataFrame:
+        """List eligible covariate targets and their required predictor table.
+
+        Filter by the level of the predicted parameter or by regression kind.
+        Prepare the model before calling this method.
+        """
+        from pyfcirt.data.regressions import available_covariate_targets
+
+        return available_covariate_targets(self.prepared, level=level, kind=kind)
+
     def add_regressions(
         self,
-        formulas: str | Mapping[str | tuple[str, str], Regression],
+        formulas: str | Mapping[str | tuple[str, str] | tuple[str, str, str], Regression],
         *,
         person_data: pd.DataFrame | None = None,
         statement_data: pd.DataFrame | None = None,

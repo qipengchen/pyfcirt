@@ -19,7 +19,7 @@ from jax import enable_x64
 from pyfcirt.common.validation import align_rows, identifier
 from pyfcirt.covariates.design import fit_design, pairwise_design
 from pyfcirt.covariates.pairwise import PairwiseL1
-from pyfcirt.covariates.specification import Regression, validate_formula
+from pyfcirt.covariates.specification import Regression, _measurement_level, validate_formula
 from pyfcirt.data.arrays import LayoutBuilder, merge_prepared
 from pyfcirt.data.constraints import (
     _check_population_directions,
@@ -40,6 +40,78 @@ if TYPE_CHECKING:
     from pyfcirt.data.prepare import PreparedInputs
 
 
+def _measurement_scopes(constant):
+    owners = {owner["name"]: owner for owner in constant.attrs["owners"]}
+    yield from ((owner, owner) for owner in owners.values())
+    for measurement in constant.attrs["measurements"]:
+        yield measurement, owners[measurement["owner"]]
+
+
+def _selector_roles(layout, selector):
+    roles = layout["prior_groups"]
+    if layout["key"] == selector:
+        return roles
+    if layout["orientation"] is not None and selector in layout["prior_roles"].values():
+        return (selector,) if selector in roles else ()
+    return None
+
+
+def _regression_target_problem(constant, layout, roles, target, *, person_effects):
+    if not (layout["regression"] or (person_effects and layout.get("person_link") is not None)):
+        return ValueError(f"Unsupported parameter target: {target!r}")
+    if layout.get("shared") and layout["prior_groups"]:
+        return ValueError("1PL common loading does not support item-specific regressions")
+    if (
+        roles
+        and layout["ordered"]
+        and constant[layout["free_flat"]].size != np.prod(layout["shape"])
+    ):
+        return NotImplementedError("Regression requires complete free ordered cutpoint vectors")
+    return None
+
+
+def available_covariate_targets(prepared, *, level, kind):
+    """List the selector and predictor table for each eligible prepared target."""
+    if level not in (None, "person", "statement", "pair", "item", "measurement"):
+        raise ValueError("level must be person, statement, pair, item, measurement or None")
+    if kind not in (None, "regression", "dif"):
+        raise ValueError("kind must be regression, dif or None")
+    constant = prepared.constant_data
+    candidates = defaultdict(lambda: defaultdict(list))
+    for scope, owner in _measurement_scopes(constant):
+        family = type(scope["specification"]).__name__
+        for layout in scope["blocks"]:
+            selectors = (layout["key"],)
+            if layout["orientation"] is not None:
+                selectors += tuple(layout["prior_roles"].values())
+            for selector in selectors:
+                roles = _selector_roles(layout, selector)
+                candidates[owner["channel"], selector][family].append((layout, roles))
+
+    columns = ["target", "model", "level", "kind", "predictor_level"]
+    rows = []
+    if level in (None, "person") and kind in (None, "regression"):
+        rows.append(("theta", None, "person", "regression", "person"))
+    for (channel, selector), families in candidates.items():
+        for family, matches in families.items():
+            layout = matches[0][0]
+            axis = _measurement_level(channel, layout["key"]) if layout["dims"] else "measurement"
+            if level is not None and level != axis:
+                continue
+            target = (channel, family, selector) if len(families) > 1 else (channel, selector)
+            for usage in ("regression", "dif") if kind is None else (kind,):
+                if not any(roles for _, roles in matches) or any(
+                    _regression_target_problem(
+                        constant, layout, roles, target, person_effects=usage == "dif"
+                    )
+                    for layout, roles in matches
+                ):
+                    continue
+                label = target if usage == "regression" and len(target) == 3 else ".".join(target)
+                rows.append((label, family, axis, usage, "person" if usage == "dif" else axis))
+    return pd.DataFrame(rows, columns=columns)
+
+
 def _active_updates(constant, declarations, *, regression=False, person_effects=False):
     """Resolve each selector once against the candidate; the last owner wins."""
     scopes = {"fc": [], "items": [], "population": [(constant.attrs["population"], None)]}
@@ -47,12 +119,8 @@ def _active_updates(constant, declarations, *, regression=False, person_effects=
         isinstance(target, tuple) and target and target[0] in ("fc", "items")
         for target, _ in declarations
     ):
-        owners = {owner["name"]: owner for owner in constant.attrs["owners"]}
-        for owner in owners.values():
-            scopes[owner["channel"]].append((owner, owner))
-        for measurement in constant.attrs["measurements"]:
-            owner = owners[measurement["owner"]]
-            scopes[owner["channel"]].append((measurement, owner))
+        for scope, owner in _measurement_scopes(constant):
+            scopes[owner["channel"]].append((scope, owner))
 
     resolved = {"theta": [(None, None, None, "theta")]} if regression else {}
     for target, _ in declarations:
@@ -79,24 +147,16 @@ def _active_updates(constant, declarations, *, regression=False, person_effects=
             if family and type(scope["specification"]).__name__ != family[0]:
                 continue
             for layout in scope["blocks"]:
-                alias = (
-                    layout["orientation"] is not None and selector in layout["prior_roles"].values()
-                )
-                if layout["key"] != selector and not alias:
+                roles = _selector_roles(layout, selector)
+                if roles is None:
                     continue
-                person_target = person_effects and layout.get("person_link") is not None
-                if regression and not (layout["regression"] or person_target):
-                    raise ValueError(f"Unsupported parameter target: {target!r}")
-                roles = layout["prior_groups"]
-                if regression and layout.get("shared") and roles:
-                    raise ValueError(
-                        "1PL common loading does not support item-specific regressions"
+                if regression and (
+                    problem := _regression_target_problem(
+                        constant, layout, roles, target, person_effects=person_effects
                     )
-                entries.extend(
-                    (scope, owner, layout, str(role))
-                    for role in roles
-                    if not alias or role == selector
-                )
+                ):
+                    raise problem
+                entries.extend((scope, owner, layout, str(role)) for role in roles)
         if not entries:
             raise ValueError(f"Parameter target {target!r} has no applicable free parameters")
         resolved[target] = entries
@@ -164,8 +224,6 @@ def _item_targets(constant, selected, key, *, person_effects=False, shared=False
         shape = tuple(layout["shape"])
         free = constant[layout["free_flat"]].values
         ordered = layout["ordered"]
-        if ordered and len(free) != int(np.prod(shape)):
-            raise NotImplementedError("Regression requires complete free ordered cutpoint vectors")
         if not person_effects:
             local_keys = (
                 _pair_keys(constant, scope)
