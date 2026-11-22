@@ -451,7 +451,7 @@ class Model:
         self._built = None
 
     # Bound methods expose the existing workflows without duplicating their logic.
-    data_summary = summary.data_summary
+    data_coverage = summary.data_coverage
     response_data = summary.response_data
     coef = summary.coef
     summary = summary.model_summary

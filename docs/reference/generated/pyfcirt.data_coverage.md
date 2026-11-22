@@ -1,7 +1,7 @@
-# data_summary
+# data_coverage
 
 ```{eval-rst}
-.. autofunction:: pyfcirt.data_summary
+.. autofunction:: pyfcirt.data_coverage
 ```
 
 Count administrations, recorded answers and likelihood events before fitting.
@@ -40,7 +40,7 @@ import pyfcirt as fc
 
 example = fc.load_example("tirt_study", model="TIRT", n_persons=3)
 model = fc.Model().prepare(example.data)
-summary = fc.data_summary(model, by="block", details=True)
+summary = fc.data_coverage(model, by="block", details=True)
 columns = ["n_answered", "n_response_categories", "n_categories", "n_obs"]
 print(summary.loc[["B1"], columns].to_string())
 ```

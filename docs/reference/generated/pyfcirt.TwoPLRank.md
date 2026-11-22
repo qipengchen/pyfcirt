@@ -43,7 +43,7 @@ import pyfcirt as fc
 declaration = fc.TwoPLRank()
 example = fc.load_example("simulated_two_pl_rank", model=declaration, n_persons=3)
 prepared = fc.PreparedInputs.from_inputs(example.data)
-print(fc.data_summary(prepared).to_string())
+print(fc.data_coverage(prepared).to_string())
 ```
 
 ```text

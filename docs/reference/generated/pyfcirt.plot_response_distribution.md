@@ -9,7 +9,7 @@ Plot observed category proportions or counts.
 ## Parameters
 
 `summary` : pandas.DataFrame
-: Table from `response_summary()` or the long responses from `response_data()`.
+: Table from `response_counts()` or the long responses from `response_data()`.
 
 `statistic` : {"proportion", "count"}
 : Bar height. Default: `"proportion"`.
@@ -35,7 +35,7 @@ bundle = fc.load_example("tirt_study", model="TIRT", n_persons=6)
 model = fc.Model(bundle.data)
 
 answers = model.response_data(blocks=["B1"])
-counts = fc.response_summary(answers)
+counts = fc.response_counts(answers)
 grid = fc.plot_response_distribution(counts, height=2.6)
 ```
 

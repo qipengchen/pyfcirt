@@ -496,7 +496,7 @@ def test_beta_response_prediction_residual_and_information_share_native_shape_la
         fc.chi_ppp(model, progressbar=False)
     view = fc.predictive_view(predictions, block="graded")
     assert view.attrs["response_kind"] == "beta" and "data_type" not in view.attrs
-    assert fc.data_summary(model, details=True).n_categories.isna().all()
+    assert fc.data_coverage(model, details=True).n_categories.isna().all()
     information = fc.information(
         model, parameters=point, include_intermediates=True, store=False, progressbar=False
     )
@@ -562,7 +562,7 @@ def test_response_checks_reject_generation_schedules_and_empty_actual_forms(monk
     with pytest.raises(ValueError, match="actual observed events"):
         fc.chi_ppp(empty, progressbar=False)
     assert pool_log_likelihood(empty.prepared, xr.Dataset()) is None
-    assert fc.data_summary(empty, by="item", details=True).loc["pair", "n_categories"] == 2
+    assert fc.data_coverage(empty, by="item", details=True).loc["pair", "n_categories"] == 2
 
 
 def test_public_pearson_keeps_tail_log_discrepancy_when_raw_values_overflow():

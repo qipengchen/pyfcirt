@@ -11,10 +11,10 @@ def plot_response_distribution(summary: pd.DataFrame, *, statistic="proportion",
     """Plot reusable response labels; return Seaborn's native FacetGrid."""
     import seaborn as sns
 
-    from pyfcirt.analysis.summary import response_summary
+    from pyfcirt.analysis.summary import response_counts
 
     if "n_valid" not in summary:
-        summary = response_summary(summary, groupby=kwargs.get("hue"))
+        summary = response_counts(summary, groupby=kwargs.get("hue"))
     if summary.empty:
         raise ValueError("No observed responses to plot")
     if statistic not in {"proportion", "count"}:

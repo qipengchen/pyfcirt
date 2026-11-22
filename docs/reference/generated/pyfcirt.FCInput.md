@@ -87,7 +87,7 @@ rows = pd.DataFrame(
     }
 )
 inputs = fc.FCInput(design, fc.ResponseTable(rows, format="block_long"))
-print(fc.data_summary(fc.Model().prepare(inputs)).to_string())
+print(fc.data_coverage(fc.Model().prepare(inputs)).to_string())
 ```
 
 ```text
@@ -107,7 +107,7 @@ mixed = fc.FCInput(
     fc.ResponseTable(rows, format="block_long"),
     blocks=(fc.BlockSpec("B2", model="TwoPLRank"),),
 )
-print(fc.data_summary(fc.Model().prepare(mixed)).to_string())
+print(fc.data_coverage(fc.Model().prepare(mixed)).to_string())
 ```
 
 ```text

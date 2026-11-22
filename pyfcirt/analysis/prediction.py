@@ -337,7 +337,10 @@ def predictive_view(idata: xr.DataTree, *, block=None, item=None) -> xr.DataTree
 
     def view(dataset):
         response = dataset[name].rename({dim: "obs"}).sel(obs=observations.obs)
-        return response.reset_coords(drop=True).rename("response").to_dataset()
+        result = response.reset_coords(drop=True).rename("response").to_dataset()
+        return result.assign_coords(
+            {axis: response[axis] for axis in _SOURCE_COORDS if axis in response.coords}
+        )
 
     kind = support.attrs["likelihood_kind"]
     attrs = {"response_kind": kind}
@@ -355,6 +358,7 @@ def predictive_view(idata: xr.DataTree, *, block=None, item=None) -> xr.DataTree
             "/": xr.Dataset(attrs=attrs),
             "observed_data": view(idata["observed_data"].to_dataset()),
             group: view(values),
+            "response_support": support.to_dataset(),
         },
         name="predictive_view",
     )

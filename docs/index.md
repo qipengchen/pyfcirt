@@ -7,7 +7,8 @@ html_theme.sidebar_secondary.remove: true
 Analyze forced-choice and Likert responses with PyMC and ArviZ. Define a design,
 fit a model, and inspect parameter estimates, model fit and score precision.
 
-New here? [Install PyFCIRT](guide/getting_started.md#installation).
+New here? [Install PyFCIRT](guide/getting_started.md#installation) or
+[start an analysis in R](guide/getting_started.md#quick-start-in-r).
 
 ## Start an analysis
 

@@ -90,7 +90,7 @@ rows = pd.read_csv(StringIO(csv))
 answers = fc.ResponseTable(rows, format="block_long")
 design = {"traits": {"a": ["A"], "b": ["B"], "c": ["C"]}, "blocks": {"B1": ["A", "B", "C"]}}
 model = fc.Model().prepare(fc.FCInput(design, answers))
-print(fc.data_summary(model).to_string())
+print(fc.data_coverage(model).to_string())
 ```
 
 ```text
@@ -116,7 +116,7 @@ dyad = {"traits": {"theta": ["A", "B"]}, "blocks": {"B1": ["A", "B"]}}
 model = fc.Model().prepare(
     fc.FCInput(dyad, answers, model=fc.TIRT(loading_anchors={"A": 1}), response_format=None)
 )
-print(fc.data_summary(model).to_string())
+print(fc.data_coverage(model).to_string())
 ```
 
 ```text

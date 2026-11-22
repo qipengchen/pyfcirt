@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Literal
@@ -50,7 +51,7 @@ def _measurement_table(prepared):
     )
 
 
-def data_summary(
+def data_coverage(
     data: Model | PreparedInputs,
     *,
     by: Literal["model", "block", "item"] = "model",
@@ -262,7 +263,7 @@ def response_data(
     ]
 
 
-def response_summary(data: pd.DataFrame, *, groupby=None) -> pd.DataFrame:
+def response_counts(data: pd.DataFrame, *, groupby=None) -> pd.DataFrame:
     """Count and normalize a response_data table; reuse its encoding and labels."""
     rows = data
     grouping = [groupby] if isinstance(groupby, str) else [] if groupby is None else list(groupby)
@@ -476,6 +477,131 @@ def _coefficient_result(entries, levels, context, formatting):
     return result
 
 
+def _measurement_pair_labels(constant, pair_index, unit_index):
+    """Use the declared comparison direction for each pair label."""
+    result = np.full(len(pair_index), pd.NA, dtype=object)
+    positions = np.flatnonzero(pair_index >= 0)
+    paired_units = pd.Series(unit_index[positions], index=positions)
+    names = constant.statement_label.values
+    units = constant.attrs["units"]
+    for unit, rows in paired_units.groupby(paired_units, sort=False):
+        pairs, inverse = np.unique(pair_index[rows.index], return_inverse=True)
+        first = constant.pair_statement_1.values[pairs]
+        second = constant.pair_statement_2.values[pairs]
+        labels = pd.Series(list(zip(names[first], names[second], strict=True)))
+        formatted = _comparison_labels(labels, units[unit]["scale"])
+        result[rows.index] = formatted.to_numpy()[inverse]
+    return result
+
+
+def _integer_labels(values):
+    return values.dtype.kind in "iu" or (
+        values.dtype.kind == "O" and pd.api.types.infer_dtype(values.ravel()) == "integer"
+    )
+
+
+def _draw_label_choices(values, choices):
+    tagged = [isinstance(value, str) and value.startswith("integer:") for value in choices]
+    if any(tagged) and _integer_labels(values):
+        choices = [
+            int(value.removeprefix("integer:")) if large else value
+            for value, large in zip(choices, tagged, strict=True)
+        ]
+    if not pd.Index(choices).is_unique:
+        raise ValueError("Draw selections require unique coordinate labels")
+    return choices
+
+
+def _draw_labels(coordinate, *, format_names=False):
+    """Transfer precise identities even when R cannot represent an integer directly."""
+    values = coordinate.values
+    if format_names:
+        return [
+            json.dumps(str(value), ensure_ascii=False) if isinstance(value, str) else str(value)
+            for value in values
+        ]
+    if _integer_labels(values):
+        large = (values < -(2**53 - 1)) | (values > 2**53 - 1)
+        if large.any():
+            values = values.astype(object)
+            values[large] = [f"integer:{value}" for value in values[large]]
+    return values
+
+
+def _select_posterior_draws(model, variables, coords):
+    """Select labelled posterior entries for clients that materialize draws."""
+    samples = posterior_samples(model.idata)
+    variables = list(samples.data_vars) if variables is None else variables
+    if not variables or set(variables) - samples.data_vars.keys():
+        raise ValueError("Select at least one known posterior variable")
+    entity_axes = {"block", "item", "statement", "pair", "trait"}
+    unknown = coords.keys() - (entity_axes | samples.coords.keys())
+    if unknown:
+        raise ValueError(f"Unknown draw coordinates: {sorted(unknown)}")
+
+    sample_coords = {
+        axis: _draw_label_choices(samples[axis].values, coords[axis])
+        for axis in ("chain", "draw")
+        if axis in coords
+    }
+    samples = samples[variables].sel(sample_coords)
+    selectors = {key: labels for key, labels in coords.items() if key not in sample_coords}
+    if not selectors:
+        return samples
+
+    prepared = model.prepared
+    constant = prepared.constant_data
+    memberships = {
+        axis: prepared.parameter_unit_table(
+            select_units(
+                constant,
+                **{f"{axis}s": _draw_label_choices(constant[axis].values, selectors[axis])},
+            )
+        )
+        .index.to_frame(index=False)
+        .groupby("kind", sort=False)
+        .entry_index.unique()
+        for axis in ("block", "item")
+        if axis in selectors
+    }
+    labels = {
+        "statement": constant.statement_label.values,
+        "trait": constant.trait.values,
+    }
+    if "pair" in selectors:
+        labels["pair"] = _measurement_pair_labels(
+            constant, np.arange(constant.sizes["pair"]), constant.pair_unit.values
+        )
+
+    selected = {}
+    for name, value in samples.data_vars.items():
+        for axis, choices in selectors.items():
+            identity = f"{name}_{axis}_index"
+            if axis in value.dims:
+                value = value.sel({axis: _draw_label_choices(value[axis].values, choices)})
+            elif axis in memberships and f"{name}_id" in value.dims:
+                entry_axis = f"{name}_id"
+                members = memberships[axis].get(name, [])
+                ids = np.asarray(prepared.coords[entry_axis])[members]
+                value = value.isel({entry_axis: value[entry_axis].isin(ids)})
+            elif axis in labels and identity in value.coords:
+                position = value[identity]
+                choices = _draw_label_choices(labels[axis], choices)
+                order = np.flatnonzero(np.isin(labels[axis], np.asarray(choices, dtype=object)))
+                value = value.isel({position.dims[0]: position.isin(order)})
+            elif axis in value.coords and value[axis].ndim == 1:
+                choices = _draw_label_choices(value[axis].values, choices)
+                value = value.isel({value[axis].dims[0]: value[axis].isin(choices)})
+            else:
+                break
+        else:
+            if value.size:
+                selected[name] = value
+    if not selected:
+        raise ValueError("No posterior entries match the requested coordinates")
+    return xr.Dataset(selected)
+
+
 def _entity_labels(indices, labels):
     """Resolve typed entity references without coercing integer IDs through floats."""
     indices = np.asarray(indices, dtype=int)
@@ -583,19 +709,9 @@ def coef(
         entries["statement"] = _entity_labels(
             entries.statement_index, constant.statement_label.values
         )
-        pair_labels = np.full(len(entries), pd.NA, dtype=object)
-        pair_index = entries.pair_index.to_numpy(dtype=int)
-        positions = np.flatnonzero(pair_index >= 0)
-        paired_units = pd.Series(indices[positions], index=positions)
-        for unit, rows in paired_units.groupby(paired_units, sort=False):
-            pairs, inverse = np.unique(pair_index[rows.index], return_inverse=True)
-            first = constant.pair_statement_1.values[pairs]
-            second = constant.pair_statement_2.values[pairs]
-            names = constant.statement_label.values
-            labels = pd.Series(list(zip(names[first], names[second], strict=True)))
-            formatted = _comparison_labels(labels, unit_records[unit]["scale"])
-            pair_labels[rows.index] = formatted.to_numpy()[inverse]
-        entries["pair"] = pair_labels
+        entries["pair"] = _measurement_pair_labels(
+            constant, entries.pair_index.to_numpy(dtype=int), indices
+        )
         entries["position"] = pd.Series(
             np.where(entries.cutpoint_position >= 0, entries.cutpoint_position + 1, pd.NA),
             index=entries.index,

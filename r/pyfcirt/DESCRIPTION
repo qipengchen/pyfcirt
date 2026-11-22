@@ -1,0 +1,14 @@
+Package: pyfcirt
+Type: Package
+Title: Bayesian Forced-Choice Modeling with PyFCIRT
+Version: 0.1.0.9000
+Authors@R: person("PyFCIRT", "contributors", role = c("aut", "cre"),
+    email = "qipengchen@users.noreply.github.com")
+Description: Prepare, fit and analyze forced-choice and item response models
+    through the Python PyFCIRT package. Convert selected posterior samples
+    to standard R draws objects and preserve the original model coordinates.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Imports: ggplot2, posterior, reticulate (>= 1.41), stats
+Suggests: bayesplot
+SystemRequirements: Python (>= 3.12), PyFCIRT with data_coverage and response_counts

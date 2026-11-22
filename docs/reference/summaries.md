@@ -24,10 +24,10 @@ generated/pyfcirt.Model.summary
 ## Observed response distributions
 
 Use `model.response_data()` to extract the observed answers. Then pass those
-rows to `fc.response_summary()` to count each answer, or plot the counts with
+rows to `fc.response_counts()` to count each answer, or plot the counts with
 `fc.plot_response_distribution()`. These summaries use observed answers as
 their denominators. For counts of administered, answered and missing units,
-use [`model.data_summary()`](generated/pyfcirt.data_summary.md).
+use [`model.data_coverage()`](generated/pyfcirt.data_coverage.md).
 
 ```{eval-rst}
 .. autosummary::
@@ -35,6 +35,6 @@ use [`model.data_summary()`](generated/pyfcirt.data_summary.md).
    :nosignatures:
 
    ~pyfcirt.response_data
-   ~pyfcirt.response_summary
+   ~pyfcirt.response_counts
    ~pyfcirt.plot_response_distribution
 ```

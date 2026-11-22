@@ -1,6 +1,7 @@
 # API reference
 
 For a first fit, follow the [Quick start](guide/getting_started.md).
+For R, see the [R API reference](reference/r_api.md).
 
 (workflow-overview)=
 ## Prepare data
@@ -12,7 +13,7 @@ For a first fit, follow the [Quick start](guide/getting_started.md).
 | [`model.add_fc()`](reference/generated/pyfcirt.Model.md#add-a-forced-choice-response-table) | Register a forced-choice design and its responses. |
 | [`model.add_items()`](reference/generated/pyfcirt.Model.md#add-an-individual-item-response-table) | Register a design and responses for binary or rating items. |
 | [`model.prepare()`](reference/generated/pyfcirt.Model.md#prepare-data) | Validate the design and responses and prepare the model for fitting. |
-| [`model.data_summary()`](reference/generated/pyfcirt.data_summary.md) | Check numbers of respondents, administered units, answers, and missing responses. |
+| [`model.data_coverage()`](reference/generated/pyfcirt.data_coverage.md) | Check numbers of respondents, administered units, answers, and missing responses. |
 | [`model.response_data()`](reference/generated/pyfcirt.response_data.md) | Inspect observed response records. |
 
 See [observed response distributions](reference/summaries.md#observed-response-distributions)
@@ -97,6 +98,7 @@ See [troubleshooting](reference/troubleshooting.md) for installation and runtime
 :maxdepth: 1
 :hidden:
 
+reference/r_api
 reference/data
 reference/measurement
 reference/construction

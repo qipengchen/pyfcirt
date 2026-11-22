@@ -52,7 +52,7 @@ import pyfcirt as fc
 declaration = fc.GTUM()
 example = fc.load_example("simulated_gtum", model=declaration, n_persons=3)
 prepared = fc.PreparedInputs.from_inputs(example.data)
-print(fc.data_summary(prepared).to_string())
+print(fc.data_coverage(prepared).to_string())
 ```
 
 ```text

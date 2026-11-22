@@ -28,7 +28,7 @@ The preparation entry owns the layout and encoding order. It validates the
 typed axes of wide inputs before expanding response rows. The measurement
 catalogue supplies the frozen design identity, before publication adds people
 and observations. Prepared inputs and borrowed result metadata are read-only;
-use `.copy(deep=True)` for edits. `data_summary(details=True)` shows declared
+use `.copy(deep=True)` for edits. `data_coverage(details=True)` shows declared
 answer categories and likelihood-factor categories separately.
 
 Fixed scoring conditions the shared native graph on the prepared final

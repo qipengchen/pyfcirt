@@ -55,7 +55,7 @@ model.add_fc(
     model=declaration,
 )
 model.prepare()
-print(model.data_summary().to_string())
+print(model.data_coverage().to_string())
 ```
 
 ```text

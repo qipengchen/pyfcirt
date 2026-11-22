@@ -212,6 +212,38 @@ preparation, fitting, diagnostics and model-checking workflow.
 
 ::::
 
+## R examples
+
+::::{grid} 1 2 2 3
+:gutter: 2
+:class-container: model-gallery fc-model-gallery
+
+:::{grid-item-card}
+:shadow: none
+:link: tutorials/tirt_r
+:link-type: doc
+:header: **Thurstonian item response theory (TIRT) in R** Dominance · pairwise comparisons
+:footer: Fit 24 teaching triplets, score 10 held-out respondents and restore the fit.
+
+```{image} _static/thumbnails/tirt_r_scores.png
+:alt: Posterior medians and 95% credible intervals for four trait scores of one held-out respondent in the R tutorial.
+```
+:::
+
+:::{grid-item-card}
+:shadow: none
+:link: tutorials/joint_r
+:link-type: doc
+:header: **Combine forced-choice and Likert responses in R**
+:footer: Fit two response types on a shared trait and compare their loadings.
+
+```{image} _static/thumbnails/joint_r_loadings.png
+:alt: Posterior mean loadings and 95% highest density intervals for three forced-choice statements and two individual items.
+```
+:::
+
+::::
+
 See [Datasets](datasets.md) for response formats, sources and generating values.
 
 ```{toctree}
@@ -232,5 +264,7 @@ Statement response functions <tutorials/statement_curves>
 Backends and estimation <examples/estimation_backends>
 Choose a prior <tutorials/prior_comparison>
 Score and update the calibration <tutorials/recursive_scoring>
+TIRT in R <tutorials/tirt_r>
+Mixed response types in R <tutorials/joint_r>
 Datasets <datasets>
 ```

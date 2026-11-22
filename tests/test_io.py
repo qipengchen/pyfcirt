@@ -78,7 +78,7 @@ def test_preparation_and_results_have_separate_ownership():
         "response_support",
     }
     assert model.build() is model.build()
-    assert fc.data_summary(prepared).equals(fc.data_summary(model))
+    assert fc.data_coverage(prepared).equals(fc.data_coverage(model))
     assert not hasattr(fc, "save") and not hasattr(fc, "load")
     with pytest.raises(TypeError, match="FCInput or ItemInput"):
         fc.Model(xr.DataTree())
@@ -514,7 +514,7 @@ def test_likert_families_and_mixed_models_keep_runtime_layouts(family):
     )
     model = fc.Model(fc.PreparedInputs.from_inputs((inputs(), item)))
     assert "theta" in model.build().named_vars
-    assert set(fc.data_summary(model, by="item").index) == {"I1"}
+    assert set(fc.data_coverage(model, by="item").index) == {"I1"}
 
 
 def test_item_prior_updates_do_not_restore_a_serialized_specification():

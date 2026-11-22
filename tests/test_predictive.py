@@ -563,10 +563,22 @@ def test_detached_prediction_preserves_recorded_obs_after_netcdf_roundtrip(
 ):
     pytest.importorskip("h5netcdf")
     result = fc.posterior_predictive(
-        supplied_model, random_seed=47, store=False, include_probabilities=False, progressbar=False
+        supplied_model,
+        draws=1,
+        random_seed=47,
+        store=False,
+        include_probabilities=False,
+        progressbar=False,
     )
     expected = fc.predictive_view(result, block="pair")
     assert expected["observed_data"].response.dtype.kind == "i"
+    support = expected["response_support"]
+    assert support.sizes[support.attrs["category_dim"]] == 2
+    original = next(
+        node for node in result["response_support"].children.values() if node.attrs == support.attrs
+    )
+    xr.testing.assert_identical(support.to_dataset(), original.to_dataset())
+    assert expected["posterior_predictive"].source_chain.values.tolist() == ["supplied"]
     path = tmp_path / "detached_predictions.nc"
     result.to_netcdf(path, engine="h5netcdf")
     with xr.open_datatree(path, engine="h5netcdf") as saved:

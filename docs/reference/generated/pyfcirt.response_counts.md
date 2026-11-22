@@ -1,7 +1,7 @@
-# response_summary
+# response_counts
 
 ```{eval-rst}
-.. autofunction:: pyfcirt.response_summary
+.. autofunction:: pyfcirt.response_counts
 ```
 
 Count observed responses and compute proportions.
@@ -33,7 +33,7 @@ bundle = fc.load_example("tirt_study", model="TIRT", n_persons=6)
 model = fc.Model(bundle.data)
 
 answers = model.response_data(blocks=["B1"])
-counts = fc.response_summary(answers)
+counts = fc.response_counts(answers)
 columns = ["pair_label", "category", "count", "n_valid", "proportion"]
 print(counts[columns].round(2).to_string(index=False))
 ```

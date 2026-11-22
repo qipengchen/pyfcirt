@@ -40,7 +40,7 @@ and `population` go to `prepare()`. See
 [preparation options](pyfcirt.PreparedInputs.from_inputs.md).
 
 For example, prepare the design and answers from a bundled dataset.
-This returns the prepared `Model`. Call `data_summary()` to check the
+This returns the prepared `Model`. Call `data_coverage()` to check the
 numbers of respondents and recorded answers.
 
 ```python
@@ -48,7 +48,7 @@ import pyfcirt as fc
 
 example = fc.load_example("tirt_study", model="TIRT", n_persons=3)
 model = fc.Model().prepare(example.data)
-print(model.data_summary()[["n_persons", "n_answered"]].to_string())
+print(model.data_coverage()[["n_persons", "n_answered"]].to_string())
 ```
 
 ```text
@@ -91,7 +91,7 @@ model.add_fc(
     response_format="rank",
 )
 model.prepare()
-print(model.data_summary()[["n_blocks", "n_answered"]].to_string())
+print(model.data_coverage()[["n_blocks", "n_answered"]].to_string())
 ```
 
 ```text
@@ -194,7 +194,7 @@ model.add_items(
     categories=(0, 1, 2, 3),
 )
 model.prepare()
-print(model.data_summary()[["n_items", "n_answered"]].to_string())
+print(model.data_coverage()[["n_items", "n_answered"]].to_string())
 ```
 
 ```text

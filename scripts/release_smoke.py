@@ -17,5 +17,5 @@ else:
     example = fc.load_example("tirt_study", model="TIRT", n_persons=3)
     model = fc.Model().prepare(example.data)
     assert model.build().observed_RVs
-    assert not model.data_summary().empty
+    assert not model.data_coverage().empty
     print(f"PyFCIRT {fc.__version__}: prepared and built a bundled TIRT example")

@@ -175,7 +175,7 @@ provide their reporting component and final entry references; the summary groups
 the existing entry memberships once. The detailed view expands IDs
 and parameterization from the current runtime layouts. Specification text does not build
 the per-parameter tables, MultiIndex relations or labels used by `coef()`.
-`data_summary(by="model", details=False)` groups existing block/item counts by
+`data_coverage(by="model", details=False)` groups existing block/item counts by
 model/response format and response law, deduplicating people. The prepared view
 supplies declared answer counts separately from counts of encoded likelihood
 categories. Block/item views and detailed
