@@ -31,24 +31,27 @@ def _group_labels(person_data, group, positions, people):
     return pd.Index(identifiers(labels, group), dtype=object)
 
 
-def fit_groups(person_data, person_ids, population) -> tuple[dict, np.ndarray]:
-    """Freeze group order and reference using the aligned training people.
+def fit_groups(
+    person_data, person_ids, population
+) -> tuple[dict, np.ndarray, tuple[np.ndarray, pd.Index] | None]:
+    """Freeze group order and return the training-row alignment for reuse.
 
     Extra rows and unused columns are ignored; duplicate person IDs always fail.
     The presence of a theta regression is checked when regressions are prepared.
     """
     group = population.group
     reference = population.reference_group
+    alignment = None
     if person_data is not None:
         keys = pd.DataFrame({"person_id": pd.Series(person_ids, dtype=object)})
-        positions, people = align_rows(person_data, keys, ("person_id",), "person_data")
+        alignment = align_rows(person_data, keys, ("person_id",), "person_data")
     elif group is not None:
         raise ValueError("person_data is required for the population group column")
     groups = []
     if group is None:
         indices = np.zeros(len(person_ids), dtype=np.int64)
     else:
-        labels = _group_labels(person_data, group, positions, people)
+        labels = _group_labels(person_data, group, *alignment)
         indices, levels = pd.factorize(labels, sort=False)
         groups = levels.tolist()
         reference = groups[0] if reference is None else identifier(reference, group)
@@ -62,7 +65,7 @@ def fit_groups(person_data, person_ids, population) -> tuple[dict, np.ndarray]:
         theta_residual_scale=population.theta_residual_scale,
         regression=None,
     )
-    return recipe, indices
+    return recipe, indices, alignment
 
 
 def apply_groups(

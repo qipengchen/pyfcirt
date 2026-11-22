@@ -9,6 +9,7 @@ import jax.numpy as jnp
 import numpy as np
 import xarray as xr
 
+from pyfcirt.analysis.information import _FISHER_BATCH_SIZE, _point, _response_fisher
 from pyfcirt.analysis.output import posterior_samples
 from pyfcirt.common.validation import has_labelled_axes
 
@@ -140,7 +141,7 @@ def information_reliability(
     refine_points=8192,
     scrambles=2,
     random_seed=42,
-    chunk_size=256,
+    chunk_size=_FISHER_BATCH_SIZE,
 ) -> xr.Dataset:
     """Approximate fixed-calibration reliability from full Fisher matrices.
 
@@ -148,11 +149,10 @@ def information_reliability(
     respondents must share an answered form and a zero-mean normal population;
     individual nuisance effects and composite rank comparisons are unsupported.
     Population integration reuses the measurement kernels, not a scoring solver.
+    ``chunk_size`` bounds Fisher batches and the population integration grid batches.
     """
     from jax.scipy.special import ndtri
     from scipy.stats import qmc
-
-    from pyfcirt.analysis.information import _point, _response_fisher
 
     posterior = posterior_samples(model.idata, mcmc=True)
     for name, value in (("points", points), ("refine_points", refine_points)):
@@ -217,7 +217,9 @@ def information_reliability(
         ):
             raise ValueError("All persons must have the same actual answered form")
         ability = theta_hat[jnp.asarray(batch.person[:, None]), jnp.asarray(batch.trait)]
-        matrices, _, _ = _response_fisher(response, ability, parameters, n_traits=n_traits)
+        matrices, _, _ = _response_fisher(
+            response, ability, parameters, n_traits=n_traits, chunk_size=chunk_size
+        )
         empirical_information = empirical_information.at[batch.person].add(matrices)
         selected = tuple(value[jnp.asarray(first)] if value.ndim else value for value in parameters)
         components.append((response, batch.trait[first], selected))
@@ -257,7 +259,12 @@ def information_reliability(
                 indices = jnp.tile(jnp.asarray(traits), (count, 1))
                 grid = ability[:, traits].reshape(count * rows, traits.shape[-1])
                 matrices, _, _ = _response_fisher(
-                    response, grid, aligned, n_traits=n_traits, trait_index=indices
+                    response,
+                    grid,
+                    aligned,
+                    n_traits=n_traits,
+                    trait_index=indices,
+                    chunk_size=chunk_size,
                 )
                 total += matrices.reshape(count, rows, n_traits, n_traits).sum(axis=1)
             variance = variances(total)

@@ -25,6 +25,17 @@ from tests.helpers import (
 )
 
 
+def test_first_preparation_publishes_parameters_from_the_original_builder(monkeypatch):
+    from pyfcirt.data.arrays import LayoutBuilder
+
+    def reject_reimport(self, dataset):
+        pytest.fail("First preparation should reuse its existing LayoutBuilder")
+
+    monkeypatch.setattr(LayoutBuilder, "update", reject_reimport)
+    prepared = fc.PreparedInputs.from_inputs(mixed_inputs())
+    assert prepared.parameter_layouts["loading"].entry_data.sizes["loading_id"] > 0
+
+
 def test_canonical_one_pl_has_one_loading_and_many_item_uses_without_inactive_q_entries():
     source = fc.ItemInput(
         fc.ItemDesignMapping(traits={"A": ["a", "b"], "B": ["c"]}),
@@ -41,15 +52,10 @@ def test_canonical_one_pl_has_one_loading_and_many_item_uses_without_inactive_q_
     assert loading.dims == ("loading_id",) and loading.shape == (1,)
     assert loading.free_flat.tolist() == [0] and not loading.fixed_flat.size
     uses = prepared.parameter_uses
-    rows = uses.where(uses.kind == "loading", drop=True)
+    rows = uses.isel(parameter_use=uses.kind == "loading")
     assert rows.entry_index.values.tolist() == [0, 0, 0]
-    assert set(prepared.constant_data.unit_id.values[rows.unit_index.values.astype(int)]) == {
-        "a",
-        "b",
-        "c",
-    }
-    assert set(rows.trait_index.values.tolist()) == {0, 1}
-    assert (rows.entry_index.values >= 0).all()
+    assert prepared.constant_data.unit_id.values[rows.unit_index.values].tolist() == ["a", "b", "c"]
+    assert rows.trait_index.values.tolist() == [0, 0, 1]
     assert "loading_id" in prepared.output_coords["loading_parameter_set_index"].dims
     assert "loading_item_index" not in prepared.output_coords
     assert "loading_trait_index" not in prepared.output_coords
@@ -1476,12 +1482,14 @@ def test_decoded_pick_does_not_answer_an_explicitly_refused_comparison():
         assert design.statement_label.values[position] == label
 
 
-@pytest.mark.parametrize("continuous", [False, True])
-def test_generated_rows_keep_canonical_values_and_original_pair_direction(continuous):
+@pytest.mark.parametrize(("continuous", "direct"), [(False, False), (False, True), (True, True)])
+def test_generated_rows_keep_canonical_values_and_original_pair_direction(continuous, direct):
     source = replace(
         graded_input(0.25 if continuous else "high", beta=continuous),
         design="[traits]\nA~ a\nB~ b\n[blocks]\ngraded ~ a b\nside +~ a\nside -~ b",
     )
+    if direct and not continuous:
+        source = replace(source, model=fc.GTUM())
     table = pd.DataFrame(
         {
             "person_id": ["p"],
@@ -1496,9 +1504,14 @@ def test_generated_rows_keep_canonical_values_and_original_pair_direction(contin
     )
     batch = state.data["constant_data"].attrs["batches"][0]
     raw = [0.25] if continuous else [0]
-    decoded = generated_pair_frame(
-        state, xr.Dataset({batch["response_name"]: (batch["obs_dim"], raw)})
-    )
+    values = xr.Dataset({batch["response_name"]: (batch["obs_dim"], raw)})
+    _, rows = generated_rows(state, values)
+    assert rows.native_response.tolist() == [direct]
+    assert rows.response.tolist() == (raw if direct else ["low"])
+    generated = _prepare_generated(state, values)
+    assert generated.batches[0].y.tolist() == raw
+    assert generated.constant_data.observation_source_response_row_index.values.tolist() == [0]
+    decoded = generated_pair_frame(state, values)
     assert decoded.statement_1.tolist() == ["a"]
     assert decoded.statement_2.tolist() == ["b"]
     assert decoded.source_statement_1.tolist() == ["b"]
@@ -1511,6 +1524,29 @@ def test_generated_rows_keep_canonical_values_and_original_pair_direction(contin
                     state,
                     xr.Dataset({batch["response_name"]: (batch["obs_dim"], raw)}),
                 )
+
+
+def test_generated_item_keeps_native_code_and_recorded_nonresponse():
+    source = fc.ItemInput(
+        pd.DataFrame({"item_id": ["a"], "trait": ["T"]}),
+        fc.ResponseTable(
+            pd.DataFrame({"person_id": ["p1", "p2"], "item_id": ["a", "a"], "response": [3, None]}),
+            format="item_long",
+        ),
+        model=fc.GPCM(),
+        categories=(1, 2, 3),
+    )
+    state = fc.PreparedInputs.from_inputs(source)
+    (batch,) = state.batches
+    values = xr.Dataset({batch.response_name: (batch.obs_dim, [2])})
+    _, rows = generated_rows(state, values)
+    assert rows.native_response.tolist() == [True, False]
+    assert rows.response.tolist() == [2, None]
+    generated = _prepare_generated(state, values)
+    assert generated.batches[0].events.labels == (1, 2, 3)
+    assert generated.batches[0].y.tolist() == [2]
+    assert generated.observed_data.response_status.values.tolist() == ["answered", "missing"]
+    assert generated.constant_data.observation_source_response_row_index.values.tolist() == [0]
 
 
 @pytest.mark.parametrize("lower,upper", [(0.5, 0.5), (0.7, 0.2), (0.1, 0.9), (0.0, 1.0)])

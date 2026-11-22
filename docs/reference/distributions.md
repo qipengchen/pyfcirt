@@ -15,6 +15,8 @@ on each API page and leading observation axes broadcast where applicable.
 In a native graph, use zero-based category indices for categorical responses and
 the actual continuous rating for Beta responses. Define priors and
 identification constraints in your own model.
+TIRT and GTUM Beta responses require positive precision for both density
+evaluation and random draws. PyMC checks the derived Beta shapes in the log density.
 
 ## Joint response models
 

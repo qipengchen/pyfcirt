@@ -26,7 +26,8 @@ Approximate reliability at fixed calibration using the full Fisher matrix.
 : Nonnegative integration seed. Default: 42.
 
 `chunk_size` : int
-: Maximum positive batch size. Default: 256.
+: Maximum Fisher batch size and number of population integration points
+  processed together. The default is 64 for all models.
 
 ## Returns
 

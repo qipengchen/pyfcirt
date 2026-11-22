@@ -91,7 +91,12 @@ class ModelGraph:
             )
         if prepared.fixed_parameters is None and approximation is None:
             return graph
-        roots = {theta.name}
+        return graph._condition_calibration(approximation)
+
+    def _condition_calibration(self, approximation):
+        """Apply the calibration values and retain the nodes scoring will consume."""
+        model, prepared = self.model, self.prepared
+        roots = {self.parameters["theta"].name}
         if MARGINAL_CORRELATION in model.named_vars:
             roots.add(MARGINAL_CORRELATION)
         fixed = {
@@ -100,14 +105,14 @@ class ModelGraph:
         }
         roots.update(fixed)
         # Final point values must remain available even for units with no answers.
-        roots.update(kind for kind, layout in factory.layouts.items() if layout.point_parameter)
+        roots.update(prepared.point_layouts)
         if approximation is None:
             conditioned = pm.do(model, fixed, make_interventions_shared=False)
         else:
             conditioned = approximation._apply(model, fixed)
             roots.update(approximation.var_names)
         roots.update(node.name for node in (*conditioned.observed_RVs, *conditioned.potentials))
-        updated = graph._rebind(_retain_outputs(conditioned, roots))
+        updated = self._rebind(_retain_outputs(conditioned, roots))
         if approximation is not None:
             updated._calibration_graph = model, fixed
         return updated
@@ -295,44 +300,47 @@ class ModelGraph:
             return view
         with view.model:
             for response in view.responses:
-                batch = response.batch
-                log_name, likelihood = batch.log_probability_name, batch.log_likelihood_name
-                native = response.distribution
-                beta = batch.likelihood_kind == "beta"
-                if beta and log_name in pending:
-                    raise ValueError(
-                        "Beta responses expose distribution parameters, not category probabilities"
-                    )
-                distribution_names = batch.distribution_names
-                requested_distribution = pending.intersection(distribution_names)
-                rank = batch.likelihood_kind == "rank"
-                if log_name in pending or requested_distribution or rank and likelihood in pending:
-                    dims = (batch.obs_dim,) if beta else (batch.obs_dim, batch.category_dim)
-                    if rank:
-                        if log_name not in view.model.named_vars:
-                            categories = np.arange(len(batch.events.labels), dtype=native.dtype)
-                            pm.Deterministic(
-                                log_name, pm.logp(native, categories[:, None]).T, dims=dims
-                            )
-                        outputs = (view.model[log_name],)
-                    else:
-                        node = native.owner
-                        outputs = node.op.dist_params(node)
-                        if log_name in pending:
-                            pm.Deterministic(log_name, outputs[0], dims=dims)
-                    if requested_distribution:
-                        values = outputs if beta else (pt.exp(outputs[0]),)
-                        for name, value in zip(distribution_names, values, strict=True):
-                            if name in requested_distribution:
-                                pm.Deterministic(name, value, dims=dims)
-                if likelihood in pending:
-                    logp = (
-                        StableCategorical.logp(batch.y, view.model[log_name])
-                        if rank
-                        else pm.logp(native, batch.y)
-                    )
-                    pm.Deterministic(likelihood, logp, dims=batch.obs_dim)
+                view._register_evaluation_outputs(response, pending)
         return view
+
+    def _register_evaluation_outputs(self, response, pending):
+        """Expose outputs for one native response without joining them to the fit."""
+        batch = response.batch
+        log_name, likelihood = batch.log_probability_name, batch.log_likelihood_name
+        native = response.distribution
+        beta = batch.likelihood_kind == "beta"
+        if beta and log_name in pending:
+            raise ValueError(
+                "Beta responses expose distribution parameters, not category probabilities"
+            )
+        distribution_names = batch.distribution_names
+        requested_distribution = pending.intersection(distribution_names)
+        rank = batch.likelihood_kind == "rank"
+        needs_rank_logp = rank and likelihood in pending
+        if log_name in pending or requested_distribution or needs_rank_logp:
+            dims = (batch.obs_dim,) if beta else (batch.obs_dim, batch.category_dim)
+            if rank:
+                if log_name not in self.model.named_vars:
+                    categories = np.arange(len(batch.events.labels), dtype=native.dtype)
+                    pm.Deterministic(log_name, pm.logp(native, categories[:, None]).T, dims=dims)
+                outputs = (self.model[log_name],)
+            else:
+                node = native.owner
+                outputs = node.op.dist_params(node)
+                if log_name in pending:
+                    pm.Deterministic(log_name, outputs[0], dims=dims)
+            if requested_distribution:
+                values = outputs if beta else (pt.exp(outputs[0]),)
+                for name, value in zip(distribution_names, values, strict=True):
+                    if name in requested_distribution:
+                        pm.Deterministic(name, value, dims=dims)
+        if likelihood in pending:
+            logp = (
+                StableCategorical.logp(batch.y, self.model[log_name])
+                if rank
+                else pm.logp(native, batch.y)
+            )
+            pm.Deterministic(likelihood, logp, dims=batch.obs_dim)
 
     def _clone(self):
         """Clone the native graph for forward evaluation and bind marginal responses."""
@@ -341,6 +349,7 @@ class ModelGraph:
         return self._rebind(_retain_outputs(self.model, roots), forward=True)
 
     def _rebind(self, model, *, forward=False):
+        """Relink each response to the nodes available in a conditioned or forward graph."""
         retained = {name: model[name] for name in self.parameters if name in model.named_vars}
         replacements = {self.parameters[name]: node for name, node in retained.items()}
         relocated = {
@@ -349,14 +358,12 @@ class ModelGraph:
             if response.batch.response_name in model.named_vars
         }
         # Replace anonymous marginals and Fisher inputs together to retain shared expressions.
-        expressions = list(
-            dict.fromkeys(
-                node
-                for response in self.responses
-                for node in (response.distribution, *(() if forward else response.parameters))
-                if node not in relocated
-            )
-        )
+        expressions = {}
+        for response in self.responses:
+            expressions[response.distribution] = None
+            if not forward:
+                expressions.update(dict.fromkeys(response.parameters))
+        expressions = [node for node in expressions if node not in relocated]
         if expressions:
             updated = graph_replace(expressions, replacements, strict=False)
             relocated.update(zip(expressions, updated, strict=True))
@@ -365,18 +372,19 @@ class ModelGraph:
             for response in self.responses:
                 batch = response.batch
                 distribution = relocated[response.distribution]
-                if forward and batch.response_name not in model.named_vars:
-                    distribution = register_response(batch, distribution, forward=True)
+                if forward:
+                    if batch.response_name not in model.named_vars:
+                        distribution = register_response(batch, distribution, forward=True)
+                    parameters, augmentation = (), ()
+                else:
+                    parameters = tuple(relocated[node] for node in response.parameters)
+                    augmentation = tuple(model[node.name] for node in response.augmentation)
                 responses.append(
                     replace(
                         response,
-                        parameters=()
-                        if forward
-                        else tuple(relocated[node] for node in response.parameters),
+                        parameters=parameters,
                         distribution=distribution,
-                        augmentation=()
-                        if forward
-                        else tuple(model[node.name] for node in response.augmentation),
+                        augmentation=augmentation,
                     )
                 )
         view = type(self)(

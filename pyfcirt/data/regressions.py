@@ -98,18 +98,20 @@ def _active_updates(constant, declarations, *, regression=False):
             raise ValueError(f"Parameter target {target!r} has no applicable free parameters")
         resolved[target] = entries
 
-    seen, active = set(), []
+    claimed, active = set(), []
     for target, declaration in reversed(declarations):
         selected = []
         for entry in resolved[target]:
             layout, role = entry[2:]
-            key = (-1 if layout is None else layout["binding_id"], role)
-            if key not in seen:
+            binding_id = -1 if layout is None else layout["binding_id"]
+            binding_role = binding_id, role
+            if binding_role not in claimed:
                 selected.append(entry)
-                seen.add(key)
+                claimed.add(binding_role)
         if selected:
             active.append((target, declaration, selected))
-    return reversed(active), seen
+    active.reverse()
+    return active, claimed
 
 
 def _pair_keys(constant, scope):
@@ -369,15 +371,13 @@ def _store_targets(constant, arrays, name, targets, spec, slots_by_binding):
             raise NotImplementedError(
                 "Truncated or ordered conditionals require centered parameters"
             )
-        noncentered = (
-            False
-            if layout["binding_id"] == -1
-            else not requires_centered
-            if spec.deviation_noncentered is None
-            else spec.deviation_noncentered
-        )
-        index_variable = f"{name}_target_{index}"
         binding = layout["binding_id"]
+        noncentered = spec.deviation_noncentered
+        if binding == -1:
+            noncentered = False
+        elif noncentered is None:
+            noncentered = not requires_centered
+        index_variable = f"{name}_target_{index}"
         unit_pools = []
         if positions is None:
             dims = ("person", "trait")
@@ -415,13 +415,17 @@ def _store_targets(constant, arrays, name, targets, spec, slots_by_binding):
     return records
 
 
-def _theta_design(constant, spec):
+def _theta_design(constant, spec, feature_columns, *, aligned_rows=None):
     if spec.parameter_residual_sd is not None or spec.deviation_noncentered is not None:
         raise ValueError("Theta regression uses the existing population scale and parameterization")
     columns = (spec.id,) if isinstance(spec.id, str) else spec.id
     if len(columns) != 1:
         raise ValueError("Theta regression requires a single person ID column")
-    keys = pd.DataFrame({columns[0]: pd.Series(constant.person.values, dtype=object)})
+    keys = (
+        pd.DataFrame({columns[0]: pd.Series(constant.person.values, dtype=object)})
+        if aligned_rows is None
+        else None
+    )
     population = constant.attrs["population"]
     recipe = population["recipe"]
     reference = None
@@ -429,7 +433,14 @@ def _theta_design(constant, spec):
         reference = constant.person_group.values == recipe["groups"].index(
             recipe["reference_group"]
         )
-    design = fit_design(spec, keys, reference_rows=reference, include_intercept=False)
+    design = fit_design(
+        spec,
+        keys,
+        reference_rows=reference,
+        include_intercept=False,
+        aligned_rows=aligned_rows,
+        feature_columns=feature_columns,
+    )
     if recipe["group"] in {record["name"] for record in design.attrs["feature_records"]}:
         raise ValueError("Theta formula cannot repeat the population group column")
     design.attrs["reference_group"] = recipe["reference_group"]
@@ -456,12 +467,20 @@ def _theta_design(constant, spec):
     return design, defaults, [(target, "theta", None, rows, pools, conditional)]
 
 
-def _candidate(state):
+def _copy_parameter_groups(state):
+    """Detach the published layout metadata before changing ownership."""
     result = state.to_dict()
     constant = result["/constant_data"]
-    # Mutating the candidate layout must not change the source metadata.
     constant.attrs = deepcopy(constant.attrs)
-    return result, constant
+    return result
+
+
+def _finish_parameter_update(prepared, result, constant, changed_kinds):
+    """Publish the candidate layout, rebuilding only changed catalogue entries."""
+    result["/constant_data"] = (
+        finalize_parameters(constant, changed=changed_kinds) if changed_kinds else constant
+    )
+    return prepared._with_parameter_updates(result)
 
 
 def _require_mutable(state):
@@ -603,6 +622,27 @@ def _remove_ordinary(selected):
     return changed
 
 
+def _measurement_regression_design(constant, target, spec, selected, feature_columns):
+    """Align target entities and fit one common design before constructing prior pools."""
+    key = selected[0][2]["key"]
+    entities, defaults, targets, pool_rows, labels = _item_targets(constant, selected, key)
+    columns = (spec.id,) if isinstance(spec.id, str) else spec.id
+    if key == "cutpoints":
+        spec = _canonical_pairs(spec, entities)
+    elif len(columns) != 1:
+        raise ValueError("Statement/item regression requires one ID column")
+    frame = pd.DataFrame(
+        {
+            column: pd.Series([entity[j] for entity in entities], dtype=object)
+            for j, column in enumerate(columns)
+        }
+    )
+    design = fit_design(spec, frame, feature_columns=feature_columns)
+    for pool, rows in enumerate(pool_rows):
+        _rank_check(design.X.values[sorted(rows)], f"{target!r}, pool {pool}")
+    return spec, design, defaults, targets, labels
+
+
 def prepare_regressions(
     prepared: PreparedInputs,
     regressions: Sequence[tuple[str | tuple[str, str], Regression]] | None = None,
@@ -637,53 +677,64 @@ def prepare_regressions(
         result = state.to_dict()
         result["/constant_data"] = current.assign_attrs(marginal_correlation=marginal_correlation)
         return prepared._with_parameter_updates(result)
+    result = _copy_parameter_groups(state)
+    constant = result["/constant_data"]
+    active, replaced = _resolve_regressions(constant, declarations)
+    constant, _ = _prune_regressions(result, constant, replaced)
+    if marginal_correlation is not None:
+        constant.attrs["marginal_correlation"] = marginal_correlation
+    constant, changed_kinds = _bind_regressions(
+        constant, result, active, replaced, qualified_priors=qualified_priors
+    )
+    return _finish_parameter_update(prepared, result, constant, changed_kinds)
+
+
+def _resolve_regressions(constant, declarations):
+    """Check every formula's syntax, then resolve the effective target declarations."""
+    features_by_formula = {}
     for _, spec in declarations:
         if not isinstance(spec, Regression):
             raise TypeError("regressions values must be Regression declarations")
-        validate_formula(spec.formula)
-    result, constant = _candidate(state)
+        if spec.formula not in features_by_formula:
+            features_by_formula[spec.formula] = validate_formula(spec.formula)
     active, replaced = _active_updates(constant, declarations, regression=True)
+    return [
+        (target, spec, selected, features_by_formula[spec.formula])
+        for target, spec, selected in active
+    ], replaced
+
+
+def _bind_regressions(
+    constant, groups, active, replaced, *, qualified_priors=None, theta_alignment=None
+):
+    """Fit encoders and bind the resolved targets on a candidate layout."""
     qualified_priors = dict(qualified_priors or {})
     slots_by_binding = defaultdict(list)
-    if replaced - {(-1, "theta")}:
-        bindings = {binding for binding, _ in replaced}
+    bindings = {binding for binding, _ in replaced if binding != -1}
+    if bindings:
         for measurement in constant.attrs["measurements"]:
             for slot in measurement["slots"]:
                 binding = slot["binding_id"]
                 if binding in bindings:
                     slots_by_binding[binding].append((measurement["unit_index"], slot["positions"]))
-    if marginal_correlation is not None:
-        constant.attrs["marginal_correlation"] = marginal_correlation
     next_id = constant.attrs["next_regression_id"]
     regression_offset = constant.attrs["population"]["parameter_set_index"] + 1
-    constant, _ = _prune_regressions(result, constant, replaced)
     changed_kinds = set(REGRESSION_KINDS)
     arrays = LayoutBuilder(coords={}, attrs={"next_binding_id": constant.attrs["next_binding_id"]})
-    for target, spec, selected in active:
+    for target, spec, selected, feature_columns in active:
         name = f"r{next_id}"
         theta = target == "theta"
         if theta:
-            design, defaults, targets = _theta_design(constant, spec)
+            design, defaults, targets = _theta_design(
+                constant, spec, feature_columns, aligned_rows=theta_alignment
+            )
             labels = [("theta", "trait", -1)] * len(defaults)
             constant = constant.drop_dims("theta_predictor")
             constant.attrs["population"]["recipe"]["regression"] = name
         else:
-            key = selected[0][2]["key"]
-            entities, defaults, targets, pool_rows, labels = _item_targets(constant, selected, key)
-            columns = (spec.id,) if isinstance(spec.id, str) else spec.id
-            if key == "cutpoints":
-                spec = _canonical_pairs(spec, entities)
-            elif len(columns) != 1:
-                raise ValueError("Statement/item regression requires one ID column")
-            frame = pd.DataFrame(
-                {
-                    column: pd.Series([entity[j] for entity in entities], dtype=object)
-                    for j, column in enumerate(columns)
-                }
+            spec, design, defaults, targets, labels = _measurement_regression_design(
+                constant, target, spec, selected, feature_columns
             )
-            design = fit_design(spec, frame)
-            for pool, rows in enumerate(pool_rows):
-                _rank_check(design.X.values[sorted(rows)], f"{target!r}, pool {pool}")
             changed_kinds.update(_remove_ordinary(selected))
         layouts, positions = _coefficient_layout(
             constant,
@@ -709,7 +760,7 @@ def prepare_regressions(
                 targets=records,
             )
         )
-        result[f"/covariates/{name}"] = design
+        groups[f"/covariates/{name}"] = design
         next_id += 1
     if qualified_priors:
         raise ValueError(
@@ -719,8 +770,7 @@ def prepare_regressions(
     constant = merge_prepared([constant, arrays])
     if (-1, "theta") in replaced:
         _check_population_directions(constant)
-    result["/constant_data"] = finalize_parameters(constant, changed=changed_kinds)
-    return prepared._with_parameter_updates(result)
+    return constant, changed_kinds
 
 
 def prepare_priors(prepared: PreparedInputs, priors):
@@ -729,11 +779,12 @@ def prepare_priors(prepared: PreparedInputs, priors):
     if not isinstance(priors, Mapping) or not priors:
         raise TypeError("priors must be a nonempty selector-to-native-prior mapping")
     _require_mutable(state)
-    result, constant = _candidate(state)
     declarations = []
     for selector, prior in priors.items():
         target = tuple(selector.split(".")) if isinstance(selector, str) else ()
         declarations.append((target, prior))
+    result = _copy_parameter_groups(state)
+    constant = result["/constant_data"]
     active, replaced = _active_updates(constant, declarations)
     constant, pruned = _prune_regressions(result, constant, replaced)
     changed_kinds = set(REGRESSION_KINDS) if pruned else set()
@@ -758,7 +809,4 @@ def prepare_priors(prepared: PreparedInputs, priors):
         scope["specification"] = replace(spec, priors=declared)
     # Prior shapes and native bounds live in the block records. The published
     # entry catalogue changes only with regression ownership or orientation.
-    result["/constant_data"] = (
-        finalize_parameters(constant, changed=changed_kinds) if changed_kinds else constant
-    )
-    return prepared._with_parameter_updates(result)
+    return _finish_parameter_update(prepared, result, constant, changed_kinds)

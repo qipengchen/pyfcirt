@@ -27,12 +27,20 @@ def plot_response_distribution(summary: pd.DataFrame, *, statistic="proportion",
         facets.remove(hue)
     if kwargs.pop("errorbar", None) is not None or kwargs.pop("sharex", False):
         raise ValueError("Use errorbar=None and local category axes for precomputed proportions")
-    titles = summary[[f"{name}_label" for name in facets]].set_axis(facets, axis="columns")
+    panels = summary.groupby(facets, sort=False, observed=True, dropna=False).ngroup()
+    first_rows = ~panels.duplicated()
+    titles = summary.loc[first_rows, [f"{name}_label" for name in facets]].set_axis(
+        facets, axis="columns"
+    )
+    labels = titles.apply(
+        lambda row: " / ".join(f"{name}={value}" for name, value in row.dropna().items()),
+        axis=1,
+    )
+    # IDs containing the title separator can produce the same text for distinct panels.
+    if not labels.is_unique:
+        labels = titles.apply(lambda row: repr(tuple(row.dropna().items())), axis=1)
     plot_data = summary.assign(
-        _panel=titles.apply(
-            lambda row: " / ".join(f"{name}={value}" for name, value in row.dropna().items()),
-            axis=1,
-        )
+        _panel=panels.map(dict(zip(panels[first_rows], labels, strict=True)))
     )
     kwargs.setdefault("col_wrap", 3)
     return (
@@ -99,8 +107,8 @@ def plot_ppp(
     figure, axes = plt.subplots(
         rows, columns, squeeze=False, figsize=figsize or (4 * columns, 3 * rows)
     )
-    for axis, label in zip(axes.flat, labels[:count], strict=False):
-        values = check if dimension is None else check.sel({dimension: label})
+    for index, (axis, label) in enumerate(zip(axes.flat, labels[:count], strict=False)):
+        values = check if dimension is None else check.isel({dimension: index})
         if int(values.n_obs) == 0:
             axis.text(0.5, 0.5, "No observed responses", ha="center", transform=axis.transAxes)
         else:
@@ -111,12 +119,11 @@ def plot_ppp(
                     "Raw differences exceed plotting range; inspect log_D_obs/log_D_rep"
                 )
             annotation = f"PPP = {float(values.PPP):.3f}"
-            if quantile_range is None:
-                axis.hist(differences, bins=bins, color="C0", alpha=0.7)
-            else:
+            if quantile_range is not None:
                 lower, upper = np.quantile(differences, quantile_range)
-                displayed = differences[(differences >= lower) & (differences <= upper)]
-                _, edges, _ = axis.hist(displayed, bins=bins, color="C0", alpha=0.7)
+                differences = differences[(differences >= lower) & (differences <= upper)]
+            _, edges, _ = axis.hist(differences, bins=bins, color="C0", alpha=0.7)
+            if quantile_range is not None:
                 axis.set_xlim(min(edges[0], 0), max(edges[-1], 0))
             axis.text(
                 0.98,
@@ -184,7 +191,8 @@ def plot_ridge(
     total = values.sizes[row] if row else 1
     if row:
         values = values.isel({row: slice(None, max_rows)}).isel({row: slice(None, None, -1)})
-    if values.dtype.kind not in "iuf" or not np.isfinite(values.values).all() or not values.size:
+    values = values.compute()
+    if values.dtype.kind not in "iuf" or not values.size or not np.isfinite(values.data).all():
         raise ValueError("Selected samples must be nonempty finite real values")
     selected = values.sizes[row] if row else 1
     facets = [dim for dim in dimensions if dim != row]
@@ -210,10 +218,12 @@ def plot_ridge(
             "sharex": True,
         },
     )
-    constant = bool((values.max(("chain", "draw")) == values.min(("chain", "draw"))).any())
+    minima = values.min(("chain", "draw"))
+    maxima = values.max(("chain", "draw"))
+    constant = bool((minima == maxima).any())
     stats = {}
     if constant:
-        lower, upper = float(values.min()), float(values.max())
+        lower, upper = float(minima.min()), float(maxima.max())
         if lower == upper:
             lower, upper = lower - 0.5, upper + 0.5
         shape = tuple(values.sizes[dim] for dim in dimensions) + (51,)

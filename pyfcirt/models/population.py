@@ -63,48 +63,54 @@ class PopulationFactory:
                 dims=("person", "trait"),
             )
         else:
-            centered_count, remaining_count = (
-                len(layout.centered_index),
-                len(layout.noncentered_index),
-            )
-            if centered_count:
-                centered_mean, centered_covariance = wrap_jax(
-                    cls._centered_moments, allow_eval=False
-                )(person_mean, person_covariance, layout.centered_index)
-                theta_centered = pm.MvNormal(
-                    "theta_centered_raw",
-                    mu=centered_mean,
-                    cov=centered_covariance,
-                    shape=(person_count, centered_count),
-                    dims=("person", "centered_trait"),
-                )
-            else:
-                theta_centered = pt.zeros((person_count, 0))
-            z = (
-                pm.Normal(
-                    "theta_noncentered_raw",
-                    0,
-                    1,
-                    shape=(person_count, remaining_count),
-                    dims=("person", "noncentered_trait"),
-                )
-                if remaining_count
-                else pt.zeros((person_count, 0))
-            )
-            theta = pm.Deterministic(
-                "theta",
-                wrap_jax(cls.conditional_theta, allow_eval=False)(
-                    theta_centered,
-                    z,
-                    person_mean,
-                    person_covariance,
-                    layout.centered_index,
-                    layout.noncentered_index,
-                ),
-                dims=("person", "trait"),
-            )
+            theta = cls._conditional_ability(layout, person_mean, person_covariance)
         parameters["theta"] = theta
         return person_mean, person_covariance
+
+    @classmethod
+    def _conditional_ability(cls, layout, person_mean, person_covariance):
+        """Build the centered draw and conditional noncentered traits."""
+        person_count = len(layout.person_group)
+        centered_count, remaining_count = (
+            len(layout.centered_index),
+            len(layout.noncentered_index),
+        )
+        if centered_count:
+            centered_mean, centered_covariance = wrap_jax(cls._centered_moments, allow_eval=False)(
+                person_mean, person_covariance, layout.centered_index
+            )
+            theta_centered = pm.MvNormal(
+                "theta_centered_raw",
+                mu=centered_mean,
+                cov=centered_covariance,
+                shape=(person_count, centered_count),
+                dims=("person", "centered_trait"),
+            )
+        else:
+            theta_centered = pt.zeros((person_count, 0))
+        z = (
+            pm.Normal(
+                "theta_noncentered_raw",
+                0,
+                1,
+                shape=(person_count, remaining_count),
+                dims=("person", "noncentered_trait"),
+            )
+            if remaining_count
+            else pt.zeros((person_count, 0))
+        )
+        return pm.Deterministic(
+            "theta",
+            wrap_jax(cls.conditional_theta, allow_eval=False)(
+                theta_centered,
+                z,
+                person_mean,
+                person_covariance,
+                layout.centered_index,
+                layout.noncentered_index,
+            ),
+            dims=("person", "trait"),
+        )
 
     @classmethod
     def fixed_covariance_values(cls, covariance, *, shared_correlation, sd_shape):

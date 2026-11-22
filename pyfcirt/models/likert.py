@@ -15,17 +15,16 @@ class _ItemDistribution(pm.Distribution):
     @classmethod
     def bind(cls, spec, batch, *, ability, parameters):
         values = slot_values(batch, parameters)
-        return cls._create(ability, *(values[key] for key in cls.parameter_keys), batch=batch)
+        arguments = (ability, *(values[key] for key in cls.parameter_keys))
+        return response_rv(cls.kernel, arguments, batch=batch)
 
     @classmethod
-    def _create(cls, *parameters, batch=None, size=None):
+    def _dist(cls, *parameters, size=None):
         parameters = tuple(
             categorical._tensor(value, name=f"parameter {i}") for i, value in enumerate(parameters)
         )
         conditions, message = cls._constraints(*parameters)
-        return response_rv(
-            cls.kernel, parameters, batch=batch, size=size, checks=conditions, message=message
-        )
+        return response_rv(cls.kernel, parameters, size=size, checks=conditions, message=message)
 
 
 class DichotomousIRTDistribution(_ItemDistribution):
@@ -36,7 +35,7 @@ class DichotomousIRTDistribution(_ItemDistribution):
     @classmethod
     def dist(cls, theta, loading, intercept, *, lower=0.0, upper=1.0, size=None, shape=None):
         """Intercept is subtracted from the trait dot product; it is not difficulty."""
-        return cls._create(
+        return cls._dist(
             theta,
             loading,
             intercept,
@@ -66,7 +65,7 @@ class GPCMDistribution(_ItemDistribution):
 
     @classmethod
     def dist(cls, theta, loading, category_intercept, *, size=None, shape=None):
-        return cls._create(
+        return cls._dist(
             theta,
             loading,
             category_intercept,
@@ -94,7 +93,7 @@ class GGUMDistribution(_ItemDistribution):
 
     @classmethod
     def dist(cls, theta, loading, location, threshold, *, size=None, shape=None):
-        return cls._create(
+        return cls._dist(
             theta,
             loading,
             location,

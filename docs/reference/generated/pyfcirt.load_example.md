@@ -32,7 +32,9 @@ Load a bundled dataset for a chosen measurement model.
 
 ExampleData
 : Fresh inputs, matched optional `person_data` and `response_times` tables,
-  provenance `metadata` and optional `truth`. Pass `bundle.data` to
+  provenance `metadata` and optional `truth`. The selected cohort filename
+  is recorded in `metadata["selection"]["resource"]` as `n<N>.json.gz` (for
+  example, `n100.json.gz`). Pass `bundle.data` to
   `Model.prepare()`. Companion tables retain source row order, so match by ID.
 
 ## Notes

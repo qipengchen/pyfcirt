@@ -32,8 +32,11 @@ def controlled_task(monkeypatch):
         pm.Normal("response", a + x, observed=np.zeros(2), dims="person")
     graph = TaskGraph.from_model(model, extra_outputs={"runtime": a + x})
 
-    def adapt(key, state, **settings):
-        return state._replace(position=jax.tree.map(lambda x: x + 1, state.position)), dict(
+    def adapt(key, position, **settings):
+        import blackjax
+
+        state = blackjax.nuts.init(jax.tree.map(lambda x: x + 1, position), graph.logdensity)
+        return state, dict(
             step_size=jnp.asarray(0.2),
             inverse_mass_matrix=jnp.ones(4),
         )
@@ -77,8 +80,16 @@ def test_common_output_retains_typed_coordinates_and_actual_final_logp(
 
     monkeypatch.setattr(runner.jax, "local_device_count", lambda: 2 if parallel else 1)
     graph = controlled_task
+    compile_initial_point = type(graph.model)._make_initial_point
+    compilations = []
+
+    def track_initializer(model, **options):
+        compilations.append(options["overrides"])
+        return compile_initial_point(model, **options)
+
+    monkeypatch.setattr(type(graph.model), "_make_initial_point", track_initializer)
     result, metadata = sample_task(
-        graph, draws=3, tune=2, chains=2, random_seed=123, var_names=["x", "a"]
+        graph, draws=np.int64(3), tune=2, chains=2, random_seed=123, var_names=["x", "a"]
     )
     posterior = result["posterior"].to_dataset()
     statistics = result["sample_stats"].to_dataset()
@@ -90,6 +101,10 @@ def test_common_output_retains_typed_coordinates_and_actual_final_logp(
     for name in ["compile_seconds", "warmup_seconds", "sampling_seconds", "postprocessing_seconds"]:
         assert metadata[name] >= 0
     assert metadata["random_seed"] == 123
+    assert compilations == [None]
+    assert type(metadata["draws"]) is int and metadata["draws"] == posterior.sizes["draw"]
+    assert metadata["chains"] == posterior.sizes["chain"]
+    assert metadata["target_accept"] == 0.8
     assert "calibration_bank" not in result
     assert "bank_row" not in statistics
     for chain in range(2):
@@ -123,6 +138,13 @@ def test_storage_and_initial_values_fail_before_sampling(controlled_task):
             sample_task(controlled_task, var_names=names)
     with pytest.raises(ValueError, match="initial-value"):
         sample_task(controlled_task, chains=2, initvals=[{}])
+
+
+def test_native_initializers_honor_distinct_chain_values(controlled_task):
+    starts = [{"a": [1.0, 2.0]}, {"a": [3.0, 4.0]}]
+    positions = controlled_task.initial_positions([11, 12], initvals=starts)
+    assert_allclose(positions[0]["a"], starts[0]["a"])
+    assert_allclose(positions[1]["a"], starts[1]["a"])
 
 
 @pytest.mark.parametrize("nested", [False, True])
@@ -183,9 +205,9 @@ def test_mutable_external_inputs_require_native_registration_and_are_isolated(re
         return
     graph = TaskGraph.from_model(model)
     mu.set_value(np.ones(3))
-    state = graph.initial_state(random_seed=11)
-    assert state.position["x"].shape == (2,)
-    assert np.isfinite(graph.logdensity(state.position))
+    (position,) = graph.initial_positions([11])
+    assert position["x"].shape == (2,)
+    assert np.isfinite(graph.logdensity(position))
 
 
 def test_observed_shared_inputs_and_output_assertions_follow_the_same_boundary():
@@ -210,9 +232,9 @@ def test_native_task_and_runtime_outputs_reuse_rv_coordinates_without_a_bank():
         a = pm.Normal("a")
         x = pm.LogNormal("x", mu=a, sigma=0.7)
     graph = TaskGraph.from_model(model, extra_outputs={"prior": pm.logp(x, x)})
-    state = graph.initial_state(random_seed=10, initvals={"a": 0.2, "x": 1.1})
+    (position,) = graph.initial_positions([10], initvals={"a": 0.2, "x": 1.1})
     assert not hasattr(graph, "bank")
-    outputs = graph.outputs(state.position)
+    outputs = graph.outputs(position)
     assert_allclose(outputs["a"], 0.2)
     assert_allclose(outputs["x"], 1.1)
     expected = -0.5 * ((np.log(1.1) - 0.2) / 0.7) ** 2 - np.log(0.7 * 1.1) - 0.5 * np.log(2 * np.pi)

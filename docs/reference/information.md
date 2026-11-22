@@ -25,7 +25,8 @@ already have means and variances on labelled person axes.
 
 ## Information-based reliability
 
-`information_reliability()` uses the local covariance approximation
+`information_reliability()` uses batches of up to 64 by default for observed
+Fisher information and population integration. It uses the local covariance approximation
 $[I(\theta)+R^{-1}]^{-1}$, where $I$ is likelihood information and $R$
 is the fixed population covariance. The approximation requires a shared
 answered form and one zero-mean normal population.

@@ -50,8 +50,10 @@ def prepare_output(prepared, dataset, name, *, attached=False):
         if subset:
             labels = dataset.get_index(dim)
             expected = prepared.constant_data.get_index(dim)
-            positions[dim] = expected.get_indexer(labels)
-            matches = labels.is_unique and np.all(positions[dim] >= 0)
+            matches = expected.equals(labels)
+            if not matches:
+                positions[dim] = expected.get_indexer(labels)
+                matches = labels.is_unique and np.all(positions[dim] >= 0)
         else:
             matches = np.array_equal(dataset[dim], prepared.coords[dim])
         if not matches:

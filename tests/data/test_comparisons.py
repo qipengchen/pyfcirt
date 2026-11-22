@@ -568,16 +568,21 @@ def test_wide_integer_category_cells_survive_other_columns_with_missing_values(p
     xr.testing.assert_identical(actual.data["observed_data"], expected.data["observed_data"])
 
 
-def test_shuffled_reversed_rank_comparisons_decode_to_the_original_typed_rows():
+@pytest.mark.parametrize(
+    "blocks, statements",
+    [(("a", "b"), tuple("abcdef")), ((17, 3), tuple(range(2**60, 2**60 + 6)))],
+    ids=["string-ids", "integer-ids"],
+)
+def test_shuffled_reversed_rank_comparisons_decode_to_the_original_typed_rows(blocks, statements):
     from itertools import combinations
 
     import xarray as xr
 
     design = pd.DataFrame(
         dict(
-            block_id=["a"] * 3 + ["b"] * 3,
+            block_id=[blocks[0]] * 3 + [blocks[1]] * 3,
             position=[1, 2, 3] * 2,
-            statement_id=list("abcdef"),
+            statement_id=statements,
             trait=["A", "B", "C"] * 2,
             keying=[1] * 6,
             fix_var=[0.5] * 6,
@@ -585,7 +590,7 @@ def test_shuffled_reversed_rank_comparisons_decode_to_the_original_typed_rows():
     )
     rows = []
     for person in (1, 2):
-        for block, members in (("a", "abc"), ("b", "def")):
+        for block, members in zip(blocks, (statements[:3], statements[3:]), strict=True):
             for index, (first, second) in enumerate(combinations(members, 2)):
                 response = int(person == 1)
                 if index % 2:
@@ -604,6 +609,8 @@ def test_shuffled_reversed_rank_comparisons_decode_to_the_original_typed_rows():
         fc.FCInput(design, fc.ResponseTable(frame, format="comparison_long"), model=fc.TIRTRank())
     )
     constant = state.data["constant_data"]
+    assert constant.block.values.tolist() == list(blocks)
+    assert constant.statement_label.values.tolist() == list(statements)
     samples = xr.Dataset(
         {
             batch["response_name"]: state.data["observed_data"][batch["response_name"]]

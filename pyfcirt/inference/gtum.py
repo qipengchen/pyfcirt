@@ -224,12 +224,6 @@ def sample_gtum(
             "sampling": json.dumps(
                 dict(
                     engine="blackjax",
-                    draws=int(draws),
-                    tune=int(tune),
-                    chains=int(chains),
-                    target_accept=float(target_accept),
-                    max_treedepth=int(max_treedepth),
-                    dense_mass=dense_mass,
                     conditional_mode_experimental=True,
                     transition_order="full_parameter_NUTS_then_conditional_IMH",
                     conditional_mode_warmup="NUTS_only",

@@ -44,13 +44,18 @@ def _table(record):
     return pd.DataFrame(record["rows"], columns=record["columns"], dtype=object)
 
 
+def _select_people(frame, selected):
+    """Keep the original row order for every table in a selected cohort."""
+    return frame.loc[frame.person_id.isin(selected)].reset_index(drop=True)
+
+
 def _companion(root, path, selected):
     with root.joinpath(path).open("r", encoding="utf-8", newline="") as stream:
         # CSV identifiers are literal strings; only measurement columns are inferred.
         frame = pd.read_csv(
             stream, dtype={"person_id": str, "block_id": str}, keep_default_na=False
         )
-    return frame.loc[frame.person_id.isin(selected)].reset_index(drop=True)
+    return _select_people(frame, selected)
 
 
 def _scale(record):
@@ -67,13 +72,10 @@ def _scale(record):
 
 def _input(record, model, selected):
     responses = record["responses"]
-    frame = _table(responses)
-    frame = frame.loc[frame.person_id.isin(selected)].reset_index(drop=True)
+    frame = _select_people(_table(responses), selected)
     administration = _table(record["administration"])
     if administration is not None:
-        administration = administration.loc[administration.person_id.isin(selected)].reset_index(
-            drop=True
-        )
+        administration = _select_people(administration, selected)
     common = dict(
         design=_table(record["design"]),
         responses=ResponseTable(frame, format=responses["format"]),
@@ -107,6 +109,98 @@ def _input(record, model, selected):
         ),
         statement_features=features,
     )
+
+
+def _read_cohort(root, name, n_persons, random_seed):
+    """Read the smallest sufficient cohort, or the full sample for seeded draws."""
+    cases = {}
+    for parent in (root, root.joinpath("studies")):
+        cases.update(
+            (case.name, case)
+            for case in parent.iterdir()
+            if case.is_dir() and case.name != "studies"
+        )
+    if not isinstance(name, str) or name not in cases:
+        available = ", ".join(sorted(cases))
+        raise ValueError(f"Unknown example {name!r}. Available examples: {available}")
+
+    case = cases[name]
+    cohorts = {
+        int(file.name.removesuffix(".json.gz")[1:]): file
+        for file in case.iterdir()
+        if file.name.startswith("n") and file.name.endswith(".json.gz")
+    }
+    sizes = sorted(cohorts)
+    largest = sizes[-1]
+    if n_persons is None:
+        n_persons = largest
+        if len(sizes) > 1:
+            metadata = json.loads(case.joinpath("metadata.json").read_text(encoding="utf-8"))
+            n_persons = metadata["default_n_persons"]
+    if n_persons > largest:
+        raise ValueError(f"Example {name!r} contains at most {largest} people")
+    stored = (
+        largest if random_seed is not None else next(size for size in sizes if size >= n_persons)
+    )
+    resource = cohorts[stored]
+    return json.loads(gzip.decompress(resource.read_bytes())), int(n_persons), resource.name
+
+
+def _example_models(records, model):
+    """Resolve the declared model for every channel in this example."""
+    channels = {record["kind"] for record in records}
+    if isinstance(model, Mapping):
+        if set(model) != channels:
+            raise ValueError(f"model mapping keys must match input channels {sorted(channels)!r}")
+        declarations = model
+    elif len(channels) == 1:
+        declarations = dict.fromkeys(channels, model)
+    else:
+        raise TypeError("Mixed-channel examples require a model mapping for 'fc' and 'items'")
+    return {
+        channel: _model_declaration(value, channel=channel)
+        for channel, value in declarations.items()
+    }
+
+
+def _example_people(records, count, random_seed):
+    """Select source people once for all responses, companions and truth."""
+    people = []
+    for record in records:
+        for table in (record["responses"], record["administration"]):
+            if table is not None:
+                position = table["columns"].index("person_id")
+                people.extend(row[position] for row in table["rows"])
+    people = list(dict.fromkeys(people))
+    selected = people[:count]
+    if random_seed is not None:
+        selected = (
+            pd.Series(people, dtype=object)
+            .sample(n=count, replace=False, random_state=int(random_seed))
+            .tolist()
+        )
+    return people, selected
+
+
+def _example_truth(payload, selected):
+    """Subset original generating arrays on their recorded person axes."""
+    if payload["truth"] is None:
+        return None
+    import xarray as xr
+
+    truth = xr.Dataset.from_dict(payload["truth"])
+    selected_ids = set(selected)
+    truth = truth.isel(
+        {
+            dimension: [index for index, person in enumerate(values) if person in selected_ids]
+            for dimension, values in payload["truth_person_axes"].items()
+        }
+    )
+    truth.attrs.update(
+        pyfcirt_truth_source="original_generation",
+        pyfcirt_current_fixed_parameters=False,
+    )
+    return truth
 
 
 def load_example(
@@ -153,58 +247,12 @@ def load_example(
     if not isinstance(include_truth, bool):
         raise TypeError("include_truth must be a boolean")
     root = files("pyfcirt").joinpath("_example_data")
-    examples = {entry.name[:-5]: entry for entry in root.iterdir() if entry.name.endswith(".json")}
-    studies = {entry.name: entry for entry in root.joinpath("studies").iterdir() if entry.is_dir()}
-    if not isinstance(name, str) or name not in examples.keys() | studies.keys():
-        available = ", ".join(sorted(examples.keys() | studies.keys()))
-        raise ValueError(f"Unknown example {name!r}. Available examples: {available}")
-    count = n_persons
-    if name in studies:
-        study = studies[name]
-        metadata = json.loads(study.joinpath("metadata.json").read_text(encoding="utf-8"))
-        sizes = sorted(metadata["stored_sample_sizes"])
-        count = metadata["default_n_persons"] if count is None else int(count)
-        if count > sizes[-1]:
-            raise ValueError(f"Example {name!r} contains at most {sizes[-1]} people")
-        stored = (
-            sizes[-1] if random_seed is not None else next(size for size in sizes if size >= count)
-        )
-        resource = study.joinpath(f"n{stored}.json.gz")
-        payload = json.loads(gzip.decompress(resource.read_bytes()))
-    else:
-        resource = examples[name]
-        payload = json.loads(resource.read_text(encoding="utf-8"))
+    payload, count, resource_name = _read_cohort(root, name, n_persons, random_seed)
     if payload["format"] != "pyfcirt-example" or payload["version"] != 1:
         raise ValueError("Unsupported bundled example input format")
-    channels = {record["kind"] for record in payload["inputs"]}
-    if isinstance(model, Mapping):
-        if set(model) != channels:
-            raise ValueError(f"model mapping keys must match input channels {sorted(channels)!r}")
-        declarations = model
-    elif len(channels) == 1:
-        declarations = dict.fromkeys(channels, model)
-    else:
-        raise TypeError("Mixed-channel examples require a model mapping for 'fc' and 'items'")
-    models = {
-        channel: _model_declaration(value, fc=channel == "fc")
-        for channel, value in declarations.items()
-    }
-    people = []
-    for record in payload["inputs"]:
-        for table in (record["responses"], record["administration"]):
-            if table is not None:
-                position = table["columns"].index("person_id")
-                people.extend(row[position] for row in table["rows"])
-    people = list(dict.fromkeys(people))
-    if count is not None and count > len(people):
-        raise ValueError(f"Example {name!r} contains at most {len(people)} people")
-    selected = people if count is None else people[:count]
-    if random_seed is not None:
-        selected = (
-            pd.Series(people, dtype=object)
-            .sample(n=count, replace=False, random_state=int(random_seed))
-            .tolist()
-        )
+    records = payload["inputs"]
+    models = _example_models(records, model)
+    people, selected = _example_people(records, count, random_seed)
     inputs = tuple(_input(record, models[record["kind"]], selected) for record in payload["inputs"])
     metadata = payload["metadata"]
     companions = {
@@ -214,7 +262,7 @@ def load_example(
     metadata["selection"] = {
         "n_persons": len(selected),
         "stored_n_persons": len(people),
-        "resource": resource.name,
+        "resource": resource_name,
         "policy": (
             "first people of the stored cohort; complete design retained"
             if random_seed is None
@@ -225,20 +273,5 @@ def load_example(
     metadata["truth_available"] = payload["truth"] is not None
     if payload["generation"] is not None:
         metadata["original_generation"] = payload["generation"]
-    truth = None
-    if include_truth and payload["truth"] is not None:
-        import xarray as xr
-
-        truth = xr.Dataset.from_dict(payload["truth"])
-        selected_ids = set(selected)
-        truth = truth.isel(
-            {
-                dimension: [index for index, person in enumerate(values) if person in selected_ids]
-                for dimension, values in payload["truth_person_axes"].items()
-            }
-        )
-        truth.attrs.update(
-            pyfcirt_truth_source="original_generation",
-            pyfcirt_current_fixed_parameters=False,
-        )
+    truth = _example_truth(payload, selected) if include_truth else None
     return ExampleData(inputs[0] if len(inputs) == 1 else inputs, truth, metadata, **companions)

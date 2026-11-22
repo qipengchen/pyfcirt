@@ -17,10 +17,10 @@ def set_platform(
     """Choose device and precision before preparing data or building graphs.
 
     None preserves JAX device selection without initializing backends. Explicit
-    selections validate the requested backend. Accelerators retain CPU for covariate
-    encoding. Existing arrays and initialized devices follow native JAX behavior;
-    use a fresh session when changing platforms. Failed backend selection
-    restores the prior settings. Precision applies to JAX and PyTensor.
+    selections validate the requested backend and keep CPU available. Existing
+    arrays and initialized devices follow native JAX behavior; use a fresh
+    session when changing platforms. Failed updates restore the prior settings.
+    Precision applies to JAX and PyTensor.
     Importing PyFCIRT applies the float64 default once.
     """
     if precision not in {"float32", "float64"}:
@@ -34,23 +34,26 @@ def set_platform(
         updates.update(
             jax_platform_name="", jax_platforms="cpu" if platform == "cpu" else f"{platform},cpu"
         )
-    if platform is not None:
-        current = jax.config.values
-        initialized = backends_are_initialized()
-        try:
-            for name, value in updates.items():
-                jax.config.update(name, value)
+    current = jax.config.values
+    previous_precision = pytensor.config.floatX
+    may_initialize = platform is not None and not backends_are_initialized()
+    try:
+        for name, value in updates.items():
+            jax.config.update(name, value)
+        if platform is not None:
             jax.devices(platform)
-        except BaseException:
-            for name in updates:
-                jax.config.update(name, current[name])
-            # A failed probe can initialize a different default backend. Clear
-            # only clients created during the probe.
-            if not initialized and backends_are_initialized():
-                clear_backends()
-            raise
-    jax.config.update("jax_enable_x64", precision == "float64")
-    pytensor.config.floatX = precision
+        # Set PyTensor first. JAX's native precision update writes the global value.
+        pytensor.config.floatX = precision
+        jax.config.update("jax_enable_x64", precision == "float64")
+    except BaseException:
+        if pytensor.config.floatX != previous_precision:
+            pytensor.config.floatX = previous_precision
+        for name in updates:
+            jax.config.update(name, current[name])
+        # Clear only clients created during this call.
+        if may_initialize and backends_are_initialized():
+            clear_backends()
+        raise
 
 
 set_platform()

@@ -184,10 +184,26 @@ def test_registered_channels_prepare_together_and_can_be_corrected():
         model.add_items(items.design, items.responses.frame, format="item_long")
 
 
-def test_model_coef_binds_current_results(supplied_model):
+def test_model_coef_binds_current_results(supplied_model, monkeypatch):
+    from pyfcirt import model as model_module
+
     result = supplied_model.coef(blocks=["pair"], kind="stats")
     assert len(result) > 0
     assert result.equals(fc.coef(supplied_model, blocks=["pair"], kind="stats"))
+
+    external = supplied_model.idata.copy(deep=False)
+    validate = model_module.validate_attached_samples
+    checked = []
+
+    def check(prepared, idata, **options):
+        checked.append(idata)
+        return validate(prepared, idata, **options)
+
+    monkeypatch.setattr(model_module, "validate_attached_samples", check)
+    for idata in (supplied_model.idata, external):
+        assert result.equals(supplied_model.coef(blocks=["pair"], kind="stats", idata=idata))
+    assert len(checked) == 1 and checked[0] is external
+
     for name in (
         "coef",
         "posterior_predictive",
@@ -644,6 +660,29 @@ def test_platform_restores_settings_after_interrupted_probe(monkeypatch):
     monkeypatch.setattr(jax, "devices", interrupt)
     with pytest.raises(KeyboardInterrupt, match="gpu"):
         fc.set_platform("gpu", precision="float32")
+
+    assert jax.config.values == previous
+    assert pytensor.config.floatX == precision
+
+
+@pytest.mark.parametrize("platform", [None, "cpu"])
+def test_platform_restores_jax_settings_if_pytensor_precision_fails(monkeypatch, platform):
+    import jax
+    import pytensor
+
+    previous = jax.config.values
+    precision = pytensor.config.floatX
+    requested = "float32" if precision == "float64" else "float64"
+
+    def reject(value):
+        assert value == requested
+        assert jax.config.x64_enabled == previous["jax_enable_x64"]
+        raise RuntimeError("precision refused")
+
+    monkeypatch.setattr(jax, "devices", lambda backend: ())
+    monkeypatch.setattr(vars(type(pytensor.config))["floatX"], "apply", reject)
+    with pytest.raises(RuntimeError, match="precision refused"):
+        fc.set_platform(platform, precision=requested)
 
     assert jax.config.values == previous
     assert pytensor.config.floatX == precision

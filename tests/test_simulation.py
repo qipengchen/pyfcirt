@@ -11,8 +11,17 @@ import pyfcirt as fc
 from tests.helpers import mixed_model, workflow_point
 
 
-def test_simulate_without_inputs_uses_default_balanced_fc_design():
+def test_simulate_without_inputs_uses_default_balanced_fc_design(monkeypatch):
+    prepare = fc.Model.prepare
+    publications = []
+
+    def record_prepare(model, *args, **kwargs):
+        publications.append(model)
+        return prepare(model, *args, **kwargs)
+
+    monkeypatch.setattr(fc.Model, "prepare", record_prepare)
     result = fc.simulate(random_seed=42)
+    assert publications == [result]
     design = result.idata["design"].to_dataset()
     assert design.sizes["person"] == 100
     assert design.fc_statement.shape == (12, 3)
@@ -151,9 +160,21 @@ def test_fixed_mapping_uses_existing_design_for_new_people():
         model.simulate(n_persons=3)
 
 
-def test_fixed_generation_is_reproducible_and_never_a_posterior():
+def test_fixed_generation_is_reproducible_and_never_a_posterior(monkeypatch):
+    from pyfcirt.models.assembly import ModelGraph
+
     model = mixed_model()
     point = workflow_point(model)
+    native = model.build()
+    forward = model._bindings.evaluation()
+    build = ModelGraph.build
+    rebuilds = []
+
+    def record_build(prepared, **options):
+        rebuilds.append(prepared)
+        return build(prepared, **options)
+
+    monkeypatch.setattr(ModelGraph, "build", staticmethod(record_build))
     before = model.idata.copy(deep=True)
     generated = fc.simulate(model, source="fixed", parameters=point, random_seed=19)
     repeated = fc.simulate(model, source="fixed", parameters=point, random_seed=19)
@@ -177,7 +198,9 @@ def test_fixed_generation_is_reproducible_and_never_a_posterior():
         generated.prepared.data["constant_data"].sizes["obs"]
         == model.prepared.data["constant_data"].sizes["obs"]
     )
-    assert generated.build() is not model.build()
+    assert not rebuilds
+    assert model._bindings.evaluation() is forward
+    assert generated.build() is not native
 
 
 @pytest.mark.parametrize("scheduled", [False, True])

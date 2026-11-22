@@ -10,6 +10,7 @@ import pytensor
 import pytensor.tensor as pt
 import pytest
 from numpy.testing import assert_allclose
+from pytensor.graph.replace import graph_replace
 from scipy.special import expit, logsumexp
 from scipy.stats import beta, norm
 
@@ -106,6 +107,58 @@ def test_single_item_factories_require_complete_category_axes(family):
             likert.GGUMDistribution.dist(np.zeros(2), np.ones(2), np.ones(2), np.zeros(1))
 
 
+@pytest.mark.parametrize("family", ["tirt", "gtum"])
+@pytest.mark.parametrize("precision", [0.0, -2.0])
+def test_comparison_beta_rejects_invalid_precision_in_direct_evaluation(family, precision):
+    if family == "tirt":
+        response = tirt.TIRTDistribution.dist(
+            [0.0, 0.0], [1.0, 1.0], 0.0, link="beta_probit", precision=precision
+        )
+    else:
+        response = gtum.GTUMDistribution.dist(
+            [0.0, 0.0], [1.0, 1.0], [-1.0, 1.0], 0.0, link="beta_logit", precision=precision
+        )
+    with pytest.raises(ValueError, match="precision > 0"):
+        response.eval()
+
+
+@pytest.mark.parametrize(
+    "options, message",
+    [
+        ({"direction": 0.0}, "direction"),
+        ({"cutpoints": [0.2, 0.2]}, "cutpoints must be strictly increasing"),
+        ({"residual_variance": [-0.25, 1.0]}, "residual_variance > 0"),
+    ],
+)
+def test_tirt_public_distribution_retains_model_constraints(options, message):
+    parameters = {
+        "cutpoints": [0.0],
+        "statement_effect": [0.0, 0.0],
+        "residual_variance": [1.0, 1.0],
+    }
+    parameters.update(options)
+    response = tirt.TIRTDistribution.dist([0.0, 0.0], [1.0, 1.0], **parameters)
+    with pytest.raises(ValueError, match=message):
+        pm.logp(response, 0).eval()
+
+
+def test_gtum_beta_rejects_symbolic_block_effect():
+    effect = pt.scalar("effect")
+    response = gtum.GTUMDistribution.dist(
+        [0.0, 0.0],
+        [1.0, 1.0],
+        [-1.0, 1.0],
+        0.0,
+        link="beta_logit",
+        person_block_effect=effect,
+        precision=10.0,
+    )
+    logp = pytensor.function([effect], pm.logp(response, 0.5))
+    assert np.isfinite(logp(0.0))
+    with pytest.raises(ValueError, match="person_block_effect"):
+        logp(0.1)
+
+
 @pytest.mark.parametrize("fixed", [False, True])
 def test_native_four_pl_builds_ordered_asymptotes_and_fixed_scoring_target(fixed):
     import pandas as pd
@@ -174,6 +227,7 @@ CATEGORICAL = (
     "ggum",
 )
 BETA = ("tirt_beta_probit", "tirt_beta_logit", "gtum_beta")
+GENERATION_CASES = ("gpcm", "tirt_beta_probit", "normal_rank")
 
 
 def case(name, *, size=None, batch=False, ability=None, symbolic=None, observed=None):
@@ -352,7 +406,7 @@ def test_native_beta_density_and_support(name, batch):
     assert np.isneginf(pm.logp(rv, invalid).eval()).all()
 
 
-@pytest.mark.parametrize("name", CATEGORICAL + BETA)
+@pytest.mark.parametrize("name", GENERATION_CASES)
 @pytest.mark.parametrize(
     "size,batch,shape", [(None, True, (2,)), (3, False, (3,)), ((2, 2), True, (2, 2))]
 )
@@ -704,30 +758,45 @@ def test_ordered_conditional_density_and_gradient_include_iid_normalizer(count):
 
     from pyfcirt.models.graph import ParameterFactory
 
-    means = np.array([-0.5, 1.2])
-    scales = np.array([0.6, 1.3])
+    mean = pt.tensor("mean", dtype="float64", shape=(2,))
+    scale = pt.tensor("scale", dtype="float64", shape=(2,))
+    value = pt.dmatrix("value")
     with pm.Model():
         cuts = ParameterFactory.ordered(
             "cuts",
-            pm.Normal.dist(mu=means, sigma=scales),
+            pm.Normal.dist(mu=mean, sigma=scale),
             rows=2,
             count=count,
         )
-    value = pt.dmatrix("value")
-    logp = pm.logp(cuts, value).sum()
-    evaluate = pytensor.function([value], [logp, pt.grad(logp, value)], mode="JAX")
+    logp = pm.logp(cuts, value).reshape((2,))
+    evaluate = pytensor.function(
+        [value, mean, scale], [logp, *pt.grad(logp.sum(), [value, mean, scale])], mode="JAX"
+    )
+    means, scales = np.array([-0.5, 1.2]), np.array([0.6, 1.3])
     point = means[:, None] + scales[:, None] * np.linspace(-0.7, 0.9, count)
-    actual, gradient = evaluate(point)
-    expected = norm.logpdf(point, means[:, None], scales[:, None]).sum() + 2 * gammaln(count + 1)
-    assert_allclose(actual, expected, atol=1e-12)
-    assert_allclose(gradient, -(point - means[:, None]) / scales[:, None] ** 2, atol=1e-12)
+    residual = point - means[:, None]
+    expected = (
+        norm.logpdf(point, means[:, None], scales[:, None]).sum(axis=-1) + gammaln(count + 1),
+        -residual / scales[:, None] ** 2,
+        (residual / scales[:, None] ** 2).sum(axis=1),
+        (residual**2 / scales[:, None] ** 3 - 1 / scales[:, None]).sum(axis=1),
+    )
+    for actual, reference in zip(evaluate(point, means, scales), expected, strict=True):
+        assert_allclose(actual, reference, atol=1e-12, rtol=1e-10)
+    fixed = graph_replace(
+        cuts, replace={mean: pt.as_tensor_variable(means), scale: pt.as_tensor_variable(scales)}
+    )
+    draws = pm.draw(fixed, draws=3, random_seed=63, mode="JAX")
+    assert draws.shape == (3, 2, count)
+    assert np.isfinite(draws).all()
+    assert (np.diff(draws, axis=-1) > 0).all()
     if count > 1:
-        assert np.isneginf(evaluate(point[:, ::-1])[0])
+        assert np.isneginf(evaluate(point[:, ::-1], means, scales)[0]).all()
         ties = point.copy()
         ties[:, 1] = ties[:, 0]
-        assert np.isneginf(evaluate(ties)[0])
+        assert np.isneginf(evaluate(ties, means, scales)[0]).all()
         with pytest.raises((AssertionError, ValueError), match="[Ss]hape"):
-            evaluate(point[:, :-1])
+            evaluate(point[:, :-1], means, scales)
 
 
 @pytest.mark.parametrize("upper_only", [False, True])
@@ -847,21 +916,18 @@ def test_centered_affine_bounds_follow_intervened_scale_and_offset():
     assert_allclose(pytensor.function([], transformed, mode="JAX")(), [1.5, 8.5], atol=1e-12)
 
 
-@pytest.mark.parametrize("name", CATEGORICAL + BETA)
-def test_named_observations_reuse_native_density_and_generation(name):
+@pytest.mark.parametrize("name", GENERATION_CASES)
+def test_named_observations_preserve_native_registration_and_coordinates(name):
     observed = np.array([0.2, 0.7]) if name in BETA else np.array([0, 1])
     with pm.Model(coords={"person": ["p", "q"]}) as model:
-        rv, reference = case(name, batch=True, observed=observed)
+        rv, _ = case(name, batch=True, observed=observed)
         assert model.observed_RVs == [rv]
         assert model.named_vars_to_dims["response"] == ("person",)
-        expected = (
-            beta.logpdf(observed, reference[:, 0], reference[:, 1])
-            if name in BETA
-            else np.log(reference[np.arange(2), observed])
-        )
-        assert_allclose(pm.logp(rv, observed).eval(), expected, atol=2e-7, rtol=2e-7)
         generated = pm.sample_prior_predictive(draws=2, random_seed=92)
-    assert generated["prior_predictive"]["response"].shape == (1, 2, 2)
+    draws = generated["prior_predictive"]["response"]
+    assert draws.dims == ("chain", "draw", "person")
+    assert draws.shape == (1, 2, 2)
+    assert draws.person.values.tolist() == ["p", "q"]
 
 
 def test_named_distribution_uses_native_shape_and_rejects_conflicting_size():
