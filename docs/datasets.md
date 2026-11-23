@@ -80,6 +80,7 @@ generating parameter arrays.
 |---|---|---|
 | `tirt_study` | 100 synthetic respondents, 24 triplets, binary comparisons | [Quick start](guide/getting_started.md) |
 | `mixed_measurement` | 80 synthetic respondents, four triplets and four individual items | [Models by block and item](tutorials/joint_workflow.ipynb) |
+| `tirt_dif` | 800 synthetic respondents in two groups, 12 dyads and known loading and cutpoint differences | [TIRT DIF in R](tutorials/tirt_dif_r.ipynb) |
 | `custom_tirt` | 100 synthetic respondents, nine dyads, person and statement predictors | [Loading companion tables](reference/generated/pyfcirt.load_example.md) |
 | `jrt_tirt` | 100 synthetic respondents, nine dyads, matched response times | [JRT–TIRT](tutorials/jrt_tirt_native.ipynb) and [M-TCIR](tutorials/m_tcir_native.ipynb) |
 

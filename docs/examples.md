@@ -250,6 +250,18 @@ preparation, fitting, diagnostics and model-checking workflow.
 ```
 :::
 
+:::{grid-item-card}
+:shadow: none
+:link: tutorials/tirt_dif_r
+:link-type: doc
+:header: **Differential item functioning with TIRT in R** (experimental)
+:footer: Compare statement loadings and pair cutpoints across two groups.
+
+```{image} _static/thumbnails/tirt_dif_r_contrasts.png
+:alt: Posterior means and 95% credible intervals for between-group cutpoint and loading differences in the R DIF tutorial.
+```
+:::
+
 ::::
 
 See [Datasets](datasets.md) for response formats, sources and generating values.
@@ -274,6 +286,7 @@ Backends and estimation <examples/estimation_backends>
 Choose a prior <tutorials/prior_comparison>
 Score and update the calibration <tutorials/recursive_scoring>
 TIRT in R <tutorials/tirt_r>
+TIRT DIF in R <tutorials/tirt_dif_r>
 Mixed response types in R <tutorials/joint_r>
 Datasets <datasets>
 ```

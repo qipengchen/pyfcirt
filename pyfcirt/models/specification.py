@@ -469,7 +469,7 @@ class PopulationSpec(_MeasurementSpec):
     group: str | None = None
     reference_group: str | int | None = None
     regression_by_group: bool = False
-    theta_residual_scale: Literal["unit", "group"] = "unit"
+    theta_residual_scale: Literal["unit", "group"] | None = None
     theta_correlation: Literal["group", "shared"] = "group"
     defaults: ClassVar = {
         "trait_correlation": _RoleDefault(_correlation_default),
@@ -530,6 +530,8 @@ class PopulationSpec(_MeasurementSpec):
             raise TypeError("regression_by_group must be bool")
         if self.theta_correlation not in ("group", "shared"):
             raise ValueError("theta_correlation must be group or shared")
+        if self.theta_residual_scale is None:
+            object.__setattr__(self, "theta_residual_scale", "group" if self.group else "unit")
         if self.theta_residual_scale not in ("unit", "group"):
             raise ValueError("theta_residual_scale must be unit or group")
         if self.group is not None:

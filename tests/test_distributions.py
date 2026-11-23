@@ -724,7 +724,6 @@ def test_dif_targets_feed_each_native_measurement_law(declaration, kind, targets
         selection.index.tolist(),
         person_data=people,
         groups="site",
-        prior_options={"parameter_residual_sd": 0.3},
     )
     prepared = model.prepared
     for slot in (slot for batch in prepared.batches for slot in batch.slots if slot.key in targets):

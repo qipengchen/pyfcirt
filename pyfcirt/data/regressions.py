@@ -6,7 +6,7 @@ from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from dataclasses import replace
-from math import isfinite
+from math import isfinite, sqrt
 from numbers import Real
 from typing import TYPE_CHECKING
 
@@ -208,9 +208,20 @@ def _canonical_pairs(spec, entities):
     return replace(spec, data=frame)
 
 
-def _item_targets(constant, selected, key, *, person_effects=False, shared=False):
+def _anchor_key(key, value):
+    if key == "cutpoints":
+        if not isinstance(value, tuple) or len(value) != 3:
+            raise ValueError("DIF cutpoint anchors require (block_id, statement_1, statement_2)")
+        block, left, right = (identifier(label, "DIF anchor ID") for label in value)
+        return block, frozenset((left, right))
+    return identifier(value, "DIF anchor ID")
+
+
+def _item_targets(constant, selected, key, *, person_effects=False, shared=False, anchors=()):
     entities, pools = {}, {}
     defaults, targets, pool_rows, labels = [], [], [], []
+    requested = {_anchor_key(key, value): value for value in anchors}
+    anchored, anchors_by_target = set(), []
     for scope, owner, layout, role in selected:
         spec = scope["specification"]
         conditional = (
@@ -224,7 +235,7 @@ def _item_targets(constant, selected, key, *, person_effects=False, shared=False
         shape = tuple(layout["shape"])
         free = constant[layout["free_flat"]].values
         ordered = layout["ordered"]
-        if not person_effects:
+        if not person_effects or (requested and shape):
             local_keys = (
                 _pair_keys(constant, scope)
                 if key == "cutpoints"
@@ -233,8 +244,24 @@ def _item_targets(constant, selected, key, *, person_effects=False, shared=False
         positions = np.take(free, layout["prior_groups"][role])
         if ordered:
             positions = np.unique(positions // shape[-1])
-        rows, indices = np.empty_like(positions), np.empty_like(positions)
         dimensions = shape[:-1] if ordered else shape
+        if requested and dimensions:
+            entry = positions // int(np.prod(dimensions[1:]))
+            mask = np.ones(len(local_keys), dtype=bool)
+            labels_for_target = []
+            for index in np.unique(entry):
+                label = local_keys[index] if key == "cutpoints" else local_keys[index][0]
+                canonical = _anchor_key(key, label)
+                if canonical in requested:
+                    mask[index] = False
+                    anchored.add(canonical)
+                    labels_for_target.append(label)
+            positions = positions[mask[entry]]
+            if labels_for_target:
+                anchors_by_target.append((layout["binding_id"], role, tuple(labels_for_target)))
+        if not len(positions):
+            continue
+        rows, indices = np.empty_like(positions), np.empty_like(positions)
         count = shape[-1] if key == "cutpoints" else None
         trait_axis = layout["dims"].index("trait") if "trait" in layout["dims"] else None
         coordinates = (
@@ -261,7 +288,11 @@ def _item_targets(constant, selected, key, *, person_effects=False, shared=False
             rows[index], indices[index] = row, pool
             pool_rows[pool].add(row)
         targets.append((layout, role, positions, rows, indices, conditional))
-    return list(entities), defaults, targets, pool_rows, labels
+    if missing := [value for key, value in requested.items() if key not in anchored]:
+        raise ValueError(f"DIF anchors do not match free targets: {missing!r}")
+    if not targets:
+        raise ValueError("DIF anchors leave no free targets for the declared parameter")
+    return list(entities), defaults, targets, pool_rows, labels, tuple(anchors_by_target)
 
 
 def _rank_check(matrix, label):
@@ -274,7 +305,7 @@ def _rank_check(matrix, label):
 
 
 def _resolve_coefficients(
-    spec, design, pool_defaults, qualified_priors=None, *, person_effects=False
+    spec, design, pool_defaults, qualified_priors=None, *, person_effects=False, laplace=False
 ):
     qualified_priors = qualified_priors or {}
     if unknown := qualified_priors.keys() - {type(model).__name__ for model, _ in pool_defaults}:
@@ -307,7 +338,7 @@ def _resolve_coefficients(
             model_override = prior is not None
             if prior is None:
                 prior = spec.priors.get(term, spec.priors.get(fallback))
-            automatic.append(person_effects and prior is None)
+            automatic.append(person_effects and not laplace and prior is None)
             if prior is None:
                 if term == "Intercept":
                     prior = intercept
@@ -315,7 +346,13 @@ def _resolve_coefficients(
                     sigma = slope_sigma / design.attrs["prior_scale_divisors"][term]
                     if not isfinite(sigma) or sigma <= 0:
                         raise ValueError(f"Regression {term}: invalid automatic prior SD")
-                    prior = PriorPreparation.default(pm.Normal.dist, mu=0, sigma=sigma)
+                    if laplace:
+                        # Loading effects live on the log scale. Continuous terms
+                        # use the scale of their frozen formula design columns.
+                        b = 1 / 6 if role == "loading_magnitude" else 1 / 3
+                        prior = PriorPreparation.default(pm.Laplace.dist, mu=0, b=b * sigma)
+                    else:
+                        prior = PriorPreparation.default(pm.Normal.dist, mu=0, sigma=sigma)
             require_proper(prior, role=f"Regression {term}")
             if (
                 spec.coefficient_noncentered
@@ -342,13 +379,19 @@ def _coefficient_layout(
     qualified_priors=None,
     person_effects=False,
     joint_prior=None,
+    laplace=False,
 ):
     terms = list(design.term.values)
     pool_dim, term_dim = f"{name}_pool", f"{name}_term"
     coordinates = {pool_dim: np.arange(len(pool_defaults), dtype=np.int64), term_dim: terms}
     if joint_prior is None:
         native, roles, register, standardized = _resolve_coefficients(
-            spec, design, pool_defaults, qualified_priors, person_effects=person_effects
+            spec,
+            design,
+            pool_defaults,
+            qualified_priors,
+            person_effects=person_effects,
+            laplace=laplace,
         )
     else:
         native = [joint_prior]
@@ -526,7 +569,16 @@ def _align_people(constant, spec):
     return align_rows(spec.data, keys, columns, f"Regression {spec.formula.strip()!r}")
 
 
-def _person_design(spec, feature_columns, *, aligned_rows, reference_rows=None, group_columns=()):
+def _person_design(
+    spec,
+    feature_columns,
+    *,
+    aligned_rows,
+    reference_rows=None,
+    group_columns=(),
+    reference_levels=None,
+    population_reference=(None, None),
+):
     """Fit a person-level formula against prepared respondent rows."""
     return fit_design(
         spec,
@@ -536,6 +588,8 @@ def _person_design(spec, feature_columns, *, aligned_rows, reference_rows=None, 
         group_columns=group_columns,
         aligned_rows=aligned_rows,
         feature_columns=feature_columns,
+        reference_levels=reference_levels,
+        population_reference=population_reference,
     )
 
 
@@ -648,6 +702,8 @@ def _compact_regression_pools(constant, scope, priors, selection, variables):
 
 def _prune_regressions(result, constant, replaced):
     """Retain frozen encoders; remove only unreachable targets and coefficient/scale pools."""
+    if anchors := constant.attrs.get("dif_anchors"):
+        constant.attrs["dif_anchors"] = [record for record in anchors if record[:3] not in replaced]
     scopes, obsolete, closed_axes = [], set(), set()
     selection, variables, resized = {}, {}, []
     for scope in constant.attrs["regression_scopes"]:
@@ -742,7 +798,7 @@ def _remove_ordinary(selected):
 def _measurement_regression_design(constant, target, spec, selected, feature_columns):
     """Align target entities and fit one common design before constructing prior pools."""
     key = selected[0][2]["key"]
-    entities, defaults, targets, pool_rows, labels = _item_targets(constant, selected, key)
+    entities, defaults, targets, pool_rows, labels, _ = _item_targets(constant, selected, key)
     columns = (spec.id,) if isinstance(spec.id, str) else spec.id
     if key == "cutpoints":
         spec = _canonical_pairs(spec, entities)
@@ -834,7 +890,7 @@ def _resolve_regressions(constant, declarations, *, person_effects=False):
 
 
 def _check_person_effect_designs(constant, groups, changed):
-    """Check the combined design once for each distinct set of overlapping formulas."""
+    """Check each set of formulas that act on the same prepared entry."""
     affected = {entry[:2] for entry in changed}
     designs = defaultdict(list)
     for scope in constant.attrs["regression_scopes"]:
@@ -844,8 +900,10 @@ def _check_person_effect_designs(constant, groups, changed):
         for target in scope["targets"]:
             key = target["binding_id"], target["prior_role"]
             if key in affected:
-                designs[key].append(path)
-    for paths in dict.fromkeys(tuple(paths) for paths in designs.values()):
+                position_dim = constant[target["indices"]].dims[-1]
+                for position in constant[position_dim].values:
+                    designs[(*key, position)].append(path)
+    for paths in dict.fromkeys(map(tuple, designs.values())):
         matrices = [groups[path].X.values for path in paths]
         labels = ", ".join(groups[path].attrs["formula"] for path in paths)
         _rank_check(np.column_stack((np.ones(len(matrices[0])), *matrices)), labels)
@@ -853,15 +911,21 @@ def _check_person_effect_designs(constant, groups, changed):
 
 def _person_effect_design(constant, spec, selected, features, aligned_rows, options, overrides):
     """Prepare one respondent encoder and the coefficient law for its target pools."""
+    target = selected[0][2]["key"]
+    population = constant.attrs["population"]["recipe"]
     design = _person_design(
-        spec, features, aligned_rows=aligned_rows, group_columns=options.get("group_columns", ())
+        spec,
+        features,
+        aligned_rows=aligned_rows,
+        group_columns=options.get("group_columns", ()),
+        reference_levels=options.get("reference_levels"),
+        population_reference=(population["group"], population["reference_group"]),
     )
-    if options.get("categorical") and any(
-        record["kind"] != "category" for record in design.attrs["feature_records"]
-    ):
+    categorical = all(record["kind"] == "category" for record in design.attrs["feature_records"])
+    if options.get("categorical") and not categorical:
         raise ValueError("DIF groups require categorical columns; cast numeric group labels")
     joint_prior = None
-    if (pairwise := options.get("pairwise")) is not None:
+    if categorical and (pairwise := options.get("pairwise")) is not None:
         if (
             spec.priors
             or overrides
@@ -870,15 +934,23 @@ def _person_effect_design(constant, spec, selected, features, aligned_rows, opti
         ):
             raise ValueError("PairwiseL1 supplies the entire joint coefficient prior")
         design = pairwise_design(design)
-        joint_prior = PairwiseL1.dist(len(design.attrs["group_basis"]), **pairwise)
-    _, defaults, targets, _, labels = _item_targets(
+        group_count = len(design.attrs["group_basis"])
+        if "strength" not in pairwise and pairwise.get("cutoff") is not None:
+            strength = 1.5
+            if target == "loading_magnitude":
+                # Match strength 3 at 800 respondents and two represented groups.
+                strength = 3.0 * sqrt(design.sizes["row"] / 800) * (2 / group_count)
+            pairwise = {**pairwise, "strength": strength}
+        joint_prior = PairwiseL1.dist(group_count, **pairwise)
+    _, defaults, targets, _, labels, anchors = _item_targets(
         constant,
         selected,
-        selected[0][2]["key"],
+        target,
         person_effects=True,
         shared=options.get("shared", False),
+        anchors=options.get("anchors", ()),
     )
-    return design, defaults, targets, labels, joint_prior
+    return design, defaults, targets, labels, joint_prior, anchors
 
 
 def _bind_regressions(
@@ -907,10 +979,18 @@ def _bind_regressions(
     changed_kinds = set(REGRESSION_KINDS)
     arrays = LayoutBuilder(coords={}, attrs={"next_binding_id": constant.attrs["next_binding_id"]})
     person_rows = {}
+    if dif_options:
+        predictors = {name for _, _, _, features in active for name in features}
+        reference_names = {
+            name for options in dif_options.values() for name in options.get("reference_levels", {})
+        }
+        if unknown := reference_names - predictors:
+            raise ValueError(f"Unknown DIF reference predictors: {sorted(unknown)!r}")
     for target, spec, selected, feature_columns in active:
+        options = (dif_options or {}).get((target, spec.formula.strip()), {})
         name = f"r{next_id}"
         theta = target == "theta"
-        joint_prior = None
+        joint_prior, anchors = None, ()
         overrides = qualified_priors.pop(target, None)
         if theta:
             design, defaults, targets = _theta_design(
@@ -923,8 +1003,7 @@ def _bind_regressions(
             key = id(spec.data), spec.id
             if key not in person_rows:
                 person_rows[key] = _align_people(constant, spec)
-            options = (dif_options or {}).get((target, spec.formula.strip()), {})
-            design, defaults, targets, labels, joint_prior = _person_effect_design(
+            design, defaults, targets, labels, joint_prior, anchors = _person_effect_design(
                 constant, spec, selected, feature_columns, person_rows[key], options, overrides
             )
         else:
@@ -944,8 +1023,15 @@ def _bind_regressions(
             qualified_priors=overrides,
             person_effects=person_effects,
             joint_prior=joint_prior,
+            laplace=options.get("laplace", False)
+            or (options.get("pairwise") is not None and joint_prior is None),
         )
         records = _store_targets(constant, arrays, name, targets, spec, slots_by_binding)
+        if anchors:
+            constant.attrs.setdefault("dif_anchors", []).extend(
+                (binding, role, design.attrs["formula"], labels)
+                for binding, role, labels in anchors
+            )
         constant.attrs["regression_scopes"].append(
             dict(
                 name=name,

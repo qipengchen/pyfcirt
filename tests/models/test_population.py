@@ -190,8 +190,7 @@ def test_group_scale_defaults_and_only_nonreference_sd_is_free(
 
     people = pd.DataFrame({"person_id": [1, 2], "school": ["A", "B"]})
     options = {}
-    if theta_residual_scale == "group":
-        options["theta_residual_scale"] = "group"
+    options["theta_residual_scale"] = theta_residual_scale
     if theta_correlation == "shared":
         options["theta_correlation"] = "shared"
     model = fc.Model(

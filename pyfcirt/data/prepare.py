@@ -1042,6 +1042,14 @@ class PreparedInputs:
         return tuple(plan for plan in self.regressions if plan.person_effects)
 
     @cached_property
+    def dif_anchors(self):
+        """Report resolved anchor labels by baseline role and respondent formula."""
+        by_term = defaultdict(dict)
+        for _, role, formula, labels in self.constant_data.attrs.get("dif_anchors", ()):
+            by_term[role, formula].update(dict.fromkeys(labels))
+        return {term: tuple(labels) for term, labels in by_term.items()}
+
+    @cached_property
     def theta_regression(self):
         name = self.constant_data.attrs["population"]["recipe"]["regression"]
         return next((plan for plan in self.regressions if plan.name == name), None)

@@ -27,7 +27,8 @@ for counts, proportions, and plots.
 | [`model.set_priors()`](reference/generated/pyfcirt.Model.set_priors.md) | Override selected default priors. |
 | [`model.available_covariate_targets()`](reference/generated/pyfcirt.Model.available_covariate_targets.md) | Find the parameters that can use covariates and the tables they need. |
 | [`model.add_regressions()`](reference/generated/pyfcirt.Model.add_regressions.md) | Add covariates to trait scores or measurement parameters. |
-| [`model.add_dif_terms()`](reference/dif.md#add-dif-terms) | Add respondent predictors to selected measurement parameters (experimental). |
+| [`model.set_population()`](reference/population.md#register-a-grouped-population) | Register the person table and group-specific trait distributions. |
+| [`model.add_dif_terms()`](reference/dif.md#add-dif-terms) | Add respondent predictors to selected measurement parameters, with sample-size and group scaling for the default truncated L1 loading strength (experimental). |
 | [`model.prior_predictive()`](reference/generated/pyfcirt.prior_predictive.md) | Check which response patterns the priors imply before fitting. |
 | [`model.fit()`](reference/generated/pyfcirt.Model.fit.md) | Fit the model and obtain posterior draws. |
 

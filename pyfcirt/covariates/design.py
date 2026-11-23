@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from math import isfinite, prod
 from numbers import Real
 
@@ -43,6 +43,13 @@ def _category_values(values, context, name, keys):
     return result
 
 
+def _category_key(value):
+    """Keep integer, boolean and string labels distinct across encoders."""
+    if isinstance(value, np.generic):
+        value = value.item()
+    return type(value), value
+
+
 def _numeric(values, context, name, keys):
     if (
         not pd.api.types.is_numeric_dtype(values)
@@ -62,14 +69,19 @@ def _rescale(values, record):
     return (values - record["center"]) / record["scale"]
 
 
-def _training_features(frame, keys, reference, spec, context):
+def _training_features(
+    frame, keys, reference, spec, context, reference_levels, population_reference
+):
     records, prior_scales = [], {}
+    group, group_reference = population_reference
     for name in frame:
         values = frame[name]
         if values.isna().any():
             _feature_error(context, name, keys, values.isna(), "contains missing values")
         numeric = pd.api.types.is_numeric_dtype(values) and not pd.api.types.is_bool_dtype(values)
         if numeric and not isinstance(values.dtype, pd.CategoricalDtype):
+            if name in reference_levels:
+                raise ValueError(f"{context}: {name!r} must be categorical to set a reference")
             array = _numeric(values, context, name, keys)
             selected = array[reference]
             with np.errstate(over="ignore"):
@@ -96,6 +108,17 @@ def _training_features(frame, keys, reference, spec, context):
                 levels = _category_values(levels, context, name, keys)
             else:
                 levels = list(dict.fromkeys(observed))
+            if name == group:
+                reference_levels.setdefault(name, group_reference)
+            if name in reference_levels:
+                level = reference_levels[name]
+                try:
+                    index = [_category_key(value) for value in levels].index(_category_key(level))
+                except ValueError:
+                    raise ValueError(
+                        f"{context}: unknown reference level {level!r} for {name!r}"
+                    ) from None
+                levels.insert(0, levels.pop(index))
             dtype = {str: "str", int: "int", bool: "bool"}[type(levels[0])]
             record = dict(
                 name=name, kind="category", dtype=dtype, levels=levels, center=0.0, scale=1.0
@@ -118,8 +141,8 @@ def _transformed(frame, records, keys, context):
         else:
             observed = _category_values(values, context, name, keys)
             levels = record["levels"]
-            allowed = {(type(level), level) for level in levels}
-            invalid = [(type(value), value) not in allowed for value in observed]
+            allowed = {_category_key(level) for level in levels}
+            invalid = [_category_key(value) not in allowed for value in observed]
             if any(invalid):
                 _feature_error(context, name, keys, invalid, "contains unknown training categories")
             result[name] = pd.Categorical(observed, categories=levels, ordered=True)
@@ -143,11 +166,28 @@ def _compile(formula, frame, include_intercept):
 _GROUP_FACTOR = "difGroup"
 
 
-def _crossed_frame(frame, columns, *, levels=None):
+def _crossed_frame(frame, columns, *, levels=None, reference_levels=None):
     """Code the observed joint categories and retain their typed labels."""
     joint = pd.MultiIndex.from_frame(frame[list(columns)])
     if levels is None:
         levels = tuple(joint.unique().tolist())
+        if reference_levels:
+            required = [
+                (i, _category_key(reference_levels[name]))
+                for i, name in enumerate(columns)
+                if name in reference_levels
+            ]
+            reference = next(
+                (
+                    level
+                    for level in levels
+                    if all(_category_key(level[i]) == value for i, value in required)
+                ),
+                None,
+            )
+            if reference is None:
+                raise ValueError(f"Unobserved DIF reference combination: {reference_levels!r}")
+            levels = (reference, *(level for level in levels if level != reference))
     codes = pd.MultiIndex.from_tuples(levels).get_indexer(joint)
     if (codes < 0).any():
         bad = joint[codes < 0].unique().tolist()[:5]
@@ -179,6 +219,8 @@ def fit_design(
     aligned_rows: tuple[np.ndarray, pd.Index] | None = None,
     feature_columns: tuple[str, ...] | None = None,
     group_columns: tuple[str, ...] = (),
+    reference_levels: Mapping | None = None,
+    population_reference: tuple[str | None, str | int | None] = (None, None),
 ) -> xr.Dataset:
     """Freeze Formulae coding and training transforms in the requested entity order.
 
@@ -207,12 +249,15 @@ def fit_design(
             raise TypeError("reference_rows must contain bool values")
         if reference.shape != (len(frame),) or not reference.any():
             raise ValueError("reference_rows must match keys and select at least one row")
-    records, prior_scales = _training_features(frame, identities, reference, spec, context)
+    reference_levels = dict(reference_levels or {})
+    records, prior_scales = _training_features(
+        frame, identities, reference, spec, context, reference_levels, population_reference
+    )
     levels = None
     if group_columns:
         if any(record["kind"] != "category" for record in records):
             raise ValueError("Crossed DIF groups require categorical columns")
-        frame, levels = _crossed_frame(frame, group_columns)
+        frame, levels = _crossed_frame(frame, group_columns, reference_levels=reference_levels)
     expression = _GROUP_FACTOR if group_columns else formula
     common, matrix, version = _compile(expression, frame, include_intercept)
     values = _finite_matrix(matrix, identities, context)
@@ -273,25 +318,28 @@ def fit_design(
 
 
 def _project_groups(values, basis):
-    # Formulae omits the reference level; its row is recovered by the intercept.
+    # Formulae omits the reference level, whose row is supplied by the basis.
     return values @ (basis[1:] - basis[0]) + basis[0]
 
 
 def pairwise_design(training):
-    """Replace one categorical treatment design with zero-sum contrasts."""
+    """Represent group differences in orthonormal contrast coordinates."""
     records = training.attrs["feature_records"]
     levels = training.attrs.get("group_levels")
     if levels is None:
         if (
             len(records) != 1
             or records[0]["kind"] != "category"
-            or training.attrs["formula"] != records[0]["name"]
+            or training.attrs["encoder"].terms.keys() - {"Intercept"} != {records[0]["name"]}
         ):
             raise ValueError("PairwiseL1 requires a single categorical group term")
         levels = records[0]["levels"]
     if len(levels) < 2:
         raise ValueError("PairwiseL1 requires at least two groups")
+    if training.sizes["term"] != len(levels) - 1:
+        raise ValueError("PairwiseL1 requires a formula with reference-level coding")
     basis = group_basis(len(levels))
+    basis = basis - basis[0]
     names = [f"contrast[{index}]" for index in range(1, len(levels))]
     return (
         training.assign_coords(term=names)

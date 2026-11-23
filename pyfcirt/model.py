@@ -34,6 +34,7 @@ from pyfcirt.data.prepare import PreparedInputs
 from pyfcirt.models.assembly import ModelGraph
 from pyfcirt.models.population import population_output_attrs
 from pyfcirt.models.priors import PriorPreparation
+from pyfcirt.models.specification import PopulationSpec
 from pyfcirt.scoring import scoring
 
 if TYPE_CHECKING:
@@ -86,6 +87,8 @@ class Model:
         _approximation=None,
     ):
         self._pending_inputs: dict[type[FCInput] | type[ItemInput], FCInput | ItemInput] = {}
+        self._pending_population: tuple[PopulationSpec, pd.DataFrame | None] | None = None
+        self._person_data: pd.DataFrame | None = None
         self._prepared = None
         self._built = None
         self._calibration_prior = _approximation
@@ -124,6 +127,18 @@ class Model:
             inputs = tuple(self._pending_inputs.values())
         elif self._pending_inputs:
             raise ValueError("Call prepare() without inputs after adding response tables")
+        if self._pending_population is not None:
+            population, registered_people = self._pending_population
+            if "population" in preparation_options or (
+                registered_people is not None and "person_data" in preparation_options
+            ):
+                raise TypeError(
+                    "Supply each population option to set_population() or prepare() once"
+                )
+            preparation_options["population"] = population
+            if registered_people is not None:
+                preparation_options["person_data"] = registered_people
+        person_data = preparation_options.get("person_data")
         if isinstance(inputs, PreparedInputs):
             if preparation_options:
                 raise TypeError("Pass preparation options with input declarations")
@@ -151,9 +166,11 @@ class Model:
         for name in ("calibration_uncertainty", "point_source"):
             if name in candidate.attrs:
                 idata.attrs[name] = candidate.attrs[name]
+        person_snapshot = None if person_data is None else person_data.copy(deep=True)
         self._output_attrs = population_output_attrs(prepared.constant_data.sizes["person"])
-        self._idata, self._prepared = idata, prepared
+        self._idata, self._prepared, self._person_data = idata, prepared, person_snapshot
         self._pending_inputs.clear()
+        self._pending_population = None
         return self
 
     def _add_input(self, declaration: FCInput | ItemInput) -> Self:
@@ -186,6 +203,31 @@ class Model:
             comparison_columns=comparison_columns,
         )
         return self._add_input(FCInput(design, table, **input_options))
+
+    def set_population(
+        self,
+        *,
+        group: str | None = None,
+        reference_group: str | int | None = None,
+        person_data: pd.DataFrame | None = None,
+        theta_residual_scale: Literal["unit", "group"] | None = None,
+        theta_correlation: Literal["group", "shared"] = "group",
+        regression_by_group: bool = False,
+        priors: Mapping[str, TensorVariable] | None = None,
+    ) -> Self:
+        """Register a population and optional respondent table before preparation."""
+        if self._prepared is not None:
+            raise ValueError("Set the population before preparing the model")
+        population = PopulationSpec(
+            group=group,
+            reference_group=reference_group,
+            theta_residual_scale=theta_residual_scale,
+            theta_correlation=theta_correlation,
+            regression_by_group=regression_by_group,
+            priors=priors,
+        )
+        self._pending_population = population, person_data
+        return self
 
     def add_items(
         self,
@@ -434,16 +476,17 @@ class Model:
 
     def add_dif_terms(
         self,
-        targets: str | Sequence[str],
+        targets: str | Sequence[str] | Mapping[str, Mapping],
         *,
-        person_data: pd.DataFrame,
+        person_data: pd.DataFrame | None = None,
+        reference_levels: Mapping[str, str | int | bool] | None = None,
         formula: str | None = None,
         groups: str | Sequence[str | tuple[str, ...]] = (),
         id: str = "person_id",
         pooling: Literal["unit", "shared"] = "unit",
-        prior: Literal["hierarchical", "pairwise_l1", "truncated_l1"] = "hierarchical",
+        prior: Literal["laplace", "hierarchical", "pairwise_l1", "truncated_l1"]
+        | TensorVariable = "laplace",
         prior_options: Mapping | None = None,
-        overrides: Mapping | None = None,
     ) -> None:
         """Add respondent-level deviations to selected free measurement parameters.
 
@@ -453,6 +496,10 @@ class Model:
         from pyfcirt.covariates.specification import dif_declarations
         from pyfcirt.data.regressions import prepare_regressions
 
+        if person_data is None:
+            person_data = self._person_data
+        if person_data is None:
+            raise ValueError("Supply person_data or register it before preparation")
         declarations, options = dif_declarations(
             targets,
             person_data,
@@ -462,7 +509,7 @@ class Model:
             pooling=pooling,
             prior=prior,
             prior_options=prior_options,
-            overrides=overrides,
+            reference_levels=reference_levels,
         )
         self._update_parameters(
             prepare_regressions, declarations, person_effects=True, dif_options=options

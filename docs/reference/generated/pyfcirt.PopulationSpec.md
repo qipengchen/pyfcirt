@@ -20,8 +20,9 @@ Define population grouping, identifying scales and priors for abilities.
 : Estimate separate theta slopes by group. Default: `False`.
 
 `theta_residual_scale` : {"unit", "group"}
-: `"unit"` fixes SDs to one (default). `"group"` estimates eligible SDs
-  outside the reference group.
+: `"unit"` fixes SDs to one. `"group"` estimates eligible SDs outside the
+  reference group. By default, a grouped population uses `group` and an
+  ungrouped population uses `unit`.
 
 `theta_correlation` : {"group", "shared"}
 : `"group"` estimates a correlation matrix per group (default).

@@ -158,9 +158,13 @@ atomically. The graph gathers their values for the requested observations.
 It saves canonical baselines and coefficient draws without materializing a
 respondent-by-measurement posterior array.
 
-An ordinary categorical term is zero at its encoded reference. A PairwiseL1
-term uses a sum-to-zero group basis and one joint contrast event per pool.
-Each group, including the treatment reference, has an offset on that basis.
+Categorical offsets are zero at the encoded reference. PairwiseL1 uses one
+joint contrast event per pool in a sum-to-zero group basis. Its design
+subtracts the reference row of that basis from every group row. The
+reference-centered matrix is part of the frozen design identity. The
+prepared categorical design supplies the respondent and group counts when
+the truncated L1 loading-strength default is resolved. Existing fitted
+encodings retain their resolved prior when applied to new respondents.
 One pool may serve multiple free parameters when sharing is explicit. An
 ordered cutpoint vector receives a common shift. Positive scales and signed
 half-axis locations receive multiplicative effects via the log link.
@@ -170,4 +174,9 @@ and any retained hierarchical scales using their prepared pool indices.
 Explicit coefficient priors and joint contrast priors use fitted units
 directly. The analysis uses the frozen encoder to compare two profiles at
 the same baseline draw, then reports the difference on the parameter scale.
-See [differential item functioning](dif.md) for the public methods.
+Data preparation resolves DIF anchor IDs against the selected parameter entries
+before allocating coefficient pools. Anchored entries keep their ordinary
+measurement bindings and receive no respondent offset for that term.
+Anchor records belong to the affected binding and formula, even when a
+binding has no coefficient pools. The fitted encoder carries the categorical level order and encoding used for
+scoring and contrasts. See [differential item functioning](dif.md) for the public methods.

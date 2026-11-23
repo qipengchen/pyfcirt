@@ -1078,6 +1078,21 @@ def model_summary(data: Model | PreparedInputs, *, details: bool = False) -> str
         lines.append(f"{heading}: {target} ~ {plan.design.attrs['formula']}")
         names = ", ".join(applicable) + "; " if mixed else ""
         lines.append(f"  {names}{scale}; {count} independent parameter pool(s)")
+        if plan.person_effects:
+            encoding = plan.design.attrs
+            reference = (
+                {":".join(encoding["group_columns"]): encoding["group_levels"][0]}
+                if "group_columns" in encoding
+                else {
+                    record["name"]: record["levels"][0]
+                    for record in encoding["feature_records"]
+                    if record["kind"] == "category"
+                }
+            )
+            if reference:
+                lines.append(f"  Reference levels: {reference}")
+    for (role, formula), anchors in prepared.dif_anchors.items():
+        lines.append(f"DIF anchors ({role} ~ {formula}): {anchors!r}")
     sections = {}
     law_counts = Counter((model, label, fixed) for model, label, _, _, fixed in laws)
     for (model, label, law, _, is_fixed), parts in laws.items():

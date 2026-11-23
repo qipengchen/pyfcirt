@@ -14,6 +14,7 @@ m$add_fc(design, responses, format, model, response_format = "rank",
          person_id_column = NULL, ...)
 m$add_items(design, responses, format, model, kind = NULL,
             categories = c(0L, 1L), person_id_column = NULL, ...)
+m$set_population(group = NULL, reference_group = NULL, person_data = NULL, ...)
 m$prepare(..., population = NULL)
 m$set_priors(priors)
 m$add_regressions(formulas, ...)
@@ -45,6 +46,67 @@ m$fit(..., var_names = NULL)
   Use `retain_calibration = TRUE` during fitting if you plan to use posterior
   calibration for scoring. The configuration and fitting methods return the
   same model invisibly.
+
+## Differential item functioning
+
+DIF is experimental. Register the person table and population with
+`m$set_population()` before `m$prepare()`. It accepts the same group, trait
+scale, correlation and prior options as
+[Python's population declaration](population.md#register-a-grouped-population).
+With grouping, the reference group's trait means and residual SDs are fixed
+at zero and one. The focal groups' means and covariance are free by default.
+
+```r
+m$available_covariate_targets(level = NULL, kind = NULL)
+m$add_dif_terms(targets, formula = NULL, ...)
+m$dif_summary(contrasts = NULL, at = NULL, prob = 0.95, significant_only = FALSE)
+```
+
+- `targets` accepts a character vector or a named list of target settings.
+  Use `list(anchors = c("B01_1", "B01_2"))` for statement IDs. For comparison
+  cutpoints, supply anchors as a data frame with `block_id`, `statement_1`
+  and `statement_2`. The model estimates one shared value per anchored
+  parameter.
+- `formula` is a right-hand-side string such as `"site"` or
+  `"site * language"`. Use `reference_levels = list(site = "A", language = "en")`
+  to set categorical references. Supply `person_data` if it was not registered
+  before preparation and `id` if its ID column differs from `person_id`.
+- `prior` defaults to `"laplace"`. For example, `prior_options = list(b = 0.2)`
+  sets its scale. Set named target options to give loading and cutpoint
+  effects different priors. Pairwise L1 applies to categorical group
+  terms. For truncated L1 on loadings, the default strength scales with
+  respondent and group counts. Set `prior_options = list(strength = 3)`
+  to use a fixed value. Formulas with numeric predictors use Laplace. Use
+  `groups = list(c("site", "language"))` for joint categorical profiles.
+  See the [DIF reference](dif.md) for prior options.
+- `available_covariate_targets(kind = "dif")` and `dif_summary()` return R data
+  frames. In `dif_summary()`, `contrasts = list(site = c("A", "B"))` reports B
+  minus A. Use `at = list(language = "en")` to hold another predictor fixed.
+  Use a two-element list of profile vectors for a joint-group comparison.
+  `prob` sets the equal-tailed interval probability, and
+  `significant_only = TRUE` keeps rows whose intervals exclude zero.
+
+On a fresh prepared model, give different priors to loadings and cutpoints
+with one declaration:
+
+```r
+m$add_dif_terms(
+  list(
+    "fc.loading_magnitude" = list(prior_options = list(b = 0.15)),
+    "fc.cutpoints" = list(prior = "pairwise_l1", prior_options = list(strength = 3))
+  ),
+  formula = "site"
+)
+```
+
+After fitting an interaction such as `formula = "site * language"`, compare
+sites at a fixed language:
+
+```r
+m$dif_summary(contrasts = list(site = c("A", "B")), at = list(language = "en"))
+```
+
+See [TIRT DIF in R](../tutorials/tirt_dif_r.ipynb) for a complete example.
 
 ## Inspect the data and posterior
 
