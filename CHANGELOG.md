@@ -1,10 +1,30 @@
 # Changelog
 
-## Unreleased
+## 0.1.0b2
 
-- Add an R interface for fitting, analysis, scoring and posterior draws.
-- Rename Python `data_summary()` to `data_coverage()` and `response_summary()`
-  to `response_counts()`.
+- **Experimental DIF analysis in Python and R.** Add respondent-level DIF terms
+  to eligible measurement parameters, choose anchors and shrinkage priors, and
+  summarize posterior contrasts between respondent profiles. A TIRT example
+  illustrates the workflow in both languages.
+- **Covariate target discovery.** Use `available_covariate_targets()` to find
+  eligible parameters, their levels, and the predictor tables they accept.
+- **R interface.** Fit and analyze forced-choice, single-item, and mixed
+  models, score new respondents, and export labelled posterior draws for R
+  diagnostics. Includes TIRT and mixed-response examples.
+- **Python API changes.** Rename `data_summary()` to `data_coverage()` and
+  `response_summary()` to `response_counts()`. The API reference distinguishes
+  data coverage from observed response frequencies.
+- **Grouped populations.** Estimate focal-group residual SDs by default.
+  Set `theta_residual_scale="unit"` to fix the residual SDs to one, or
+  `theta_correlation="shared"` to estimate a common trait correlation matrix.
+- **Fisher information.** Reuse compiled probability and derivative
+  calculations, and evaluate TIRTRank information in batches to reduce peak
+  memory.
+- **Installation.** The NVIDIA pip example pins a CUDA runtime version to help
+  avoid initialization failures on some Linux and WSL 2 setups.
+
+See the [installation guide](https://qipengchen.github.io/pyfcirt/guide/getting_started.html#installation)
+for PyPI, conda, and container commands.
 
 ## 0.1.0b1
 
