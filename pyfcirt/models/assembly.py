@@ -21,7 +21,7 @@ from pytensor.graph.traversal import ancestors, graph_inputs
 from pyfcirt.covariates.model import build_regressions
 from pyfcirt.data.coordinates import _identity_digest
 from pyfcirt.models.categorical import StableCategorical
-from pyfcirt.models.graph import ParameterFactory, ResponseBinding, register_response
+from pyfcirt.models.graph import ParameterFactory, ResponseBinding, register_response, slot_values
 from pyfcirt.models.population import MARGINAL_CORRELATION, PopulationFactory
 from pyfcirt.models.priors import prior_coordinates
 
@@ -53,7 +53,7 @@ class ModelGraph:
                 for kind in ("regression_coefficient", "regression_sd")
                 if kind in factory.layouts
             )
-            regressions = build_regressions(prepared.regressions, factory.bindings)
+            regressions, person_effects = build_regressions(prepared.regressions, factory.bindings)
             factory.build(
                 (kind for kind in factory.layouts if kind != "covariance"), regressions=regressions
             )
@@ -85,7 +85,7 @@ class ModelGraph:
                     batch.specification,
                     batch,
                     ability=theta[batch.person[:, None], batch.trait],
-                    parameters=graph.parameters,
+                    values=slot_values(batch, graph.parameters, person_effects),
                 )
                 for batch in prepared.batches
             )

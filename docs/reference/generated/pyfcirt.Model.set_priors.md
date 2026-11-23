@@ -30,8 +30,8 @@ None
 
 ## Notes
 
-A prior applies to free entries and can replace the selected role's regression.
-Fixed references remain. For a standard deviation, variance or precision,
+A prior applies to free entries and can replace the selected role's baseline
+regression. Fixed references and respondent-level DIF terms remain. For a standard deviation, variance or precision,
 choose a distribution with positive support.
 
 ### Priors and identification

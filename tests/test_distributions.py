@@ -14,6 +14,7 @@ from pytensor.graph.replace import graph_replace
 from scipy.special import expit, logsumexp
 from scipy.stats import beta, norm
 
+from pyfcirt.covariates.pairwise import PairwiseL1
 from pyfcirt.models import dist, likert, mgppm, sequential
 from pyfcirt.models.thurstonian import gtum, rank, tirt
 from tests.reference.likert import subjective_log_probs
@@ -22,8 +23,9 @@ from tests.reference.sequential import scalar_odds, scalar_probabilities
 from tests.reference.thurstonian import gtum_log_probs, tirt_log_probs
 
 
-def test_public_measurement_distribution_exports_use_native_classes():
+def test_public_distribution_exports_use_native_classes():
     native = (
+        PairwiseL1,
         likert.DichotomousIRTDistribution,
         likert.GGUMDistribution,
         likert.GPCMDistribution,
@@ -545,38 +547,13 @@ def test_tirt_extreme_graded_intervals_and_gradients(link, eta):
     assert_allclose(derivative[:, 0], -derivative[:, 1], atol=1e-12)
 
 
-@pytest.mark.parametrize(
-    "declaration,kind",
-    [
-        pytest.param("MGPPM", "rank", id="mgppm"),
-        pytest.param("TwoPLRank", "rank", id="2pl-rank"),
-        pytest.param("GGUMRank", "rank", id="ggum-rank"),
-        pytest.param("TIRTRank", "rank", id="gaussian-rank"),
-        pytest.param("TIRT", "graded", id="tirt-graded"),
-        pytest.param("GTUM", "graded", id="gtum-graded-effect"),
-        pytest.param("DichotomousIRT", "binary-item", id="binary-item"),
-        pytest.param("GPCM", "ordinal-item", id="gpcm-seven-categories"),
-        pytest.param("GGUM", "ordinal-item", id="ggum-seven-categories"),
-        pytest.param("TIRT-beta_probit", "beta", id="tirt-beta-probit"),
-        pytest.param("TIRT-beta_logit", "beta", id="tirt-beta-logit"),
-        pytest.param("GTUM-beta_logit", "beta", id="gtum-beta-logit"),
-    ],
-)
-def test_high_level_declaration_native_target_and_real_prior_generation(
-    declaration, kind, monkeypatch
-):
+def declaration_input(declaration, kind):
+    """Build a high-level declaration and the native responses for its scale."""
     import pandas as pd
 
     import pyfcirt as fc
 
     name, _, link = declaration.partition("-")
-    if name == "TIRTRank":
-        from pyfcirt.models.thurstonian.normal import qmc
-
-        def unexpected_nodes(*args, **kwargs):
-            pytest.fail("Rank fitting or response generation allocated marginal Sobol nodes")
-
-        monkeypatch.setattr(qmc, "Sobol", unexpected_nodes)
     options = (
         {"link": link, "priors": {"response_precision": pm.Gamma.dist(alpha=4.0, beta=0.5)}}
         if link
@@ -641,6 +618,40 @@ def test_high_level_declaration_native_target_and_real_prior_generation(
                 if kind == "beta"
                 else fc.CategoryScale(tuple(range(7))),
             )
+    return data
+
+
+@pytest.mark.parametrize(
+    "declaration,kind",
+    [
+        pytest.param("MGPPM", "rank", id="mgppm"),
+        pytest.param("TwoPLRank", "rank", id="2pl-rank"),
+        pytest.param("GGUMRank", "rank", id="ggum-rank"),
+        pytest.param("TIRTRank", "rank", id="gaussian-rank"),
+        pytest.param("TIRT", "graded", id="tirt-graded"),
+        pytest.param("GTUM", "graded", id="gtum-graded-effect"),
+        pytest.param("DichotomousIRT", "binary-item", id="binary-item"),
+        pytest.param("GPCM", "ordinal-item", id="gpcm-seven-categories"),
+        pytest.param("GGUM", "ordinal-item", id="ggum-seven-categories"),
+        pytest.param("TIRT-beta_probit", "beta", id="tirt-beta-probit"),
+        pytest.param("TIRT-beta_logit", "beta", id="tirt-beta-logit"),
+        pytest.param("GTUM-beta_logit", "beta", id="gtum-beta-logit"),
+    ],
+)
+def test_high_level_declaration_native_target_and_real_prior_generation(
+    declaration, kind, monkeypatch
+):
+    import pyfcirt as fc
+
+    name = declaration.split("-", maxsplit=1)[0]
+    if name == "TIRTRank":
+        from pyfcirt.models.thurstonian.normal import qmc
+
+        def unexpected_nodes(*args, **kwargs):
+            pytest.fail("Rank fitting or response generation allocated marginal Sobol nodes")
+
+        monkeypatch.setattr(qmc, "Sobol", unexpected_nodes)
+    data = declaration_input(declaration, kind)
     model = fc.Model(fc.PreparedInputs.from_inputs(data))
     graph = model.build()
     assert np.isfinite(graph.compile_logp(mode="JAX")(graph.initial_point(random_seed=29)))
@@ -679,6 +690,61 @@ def test_high_level_declaration_native_target_and_real_prior_generation(
         assert np.isfinite(
             fixed.build().compile_logp(mode="JAX")(fixed.build().initial_point(random_seed=32))
         )
+
+
+@pytest.mark.parametrize(
+    ("declaration", "kind", "targets"),
+    [
+        ("TIRT", "graded", ("cutpoints", "residual_variance")),
+        ("GTUM", "graded", ("location",)),
+        ("TIRTRank", "rank", ("intercept", "residual_variance")),
+        ("TwoPLRank", "rank", ("intercept",)),
+        ("GGUMRank", "rank", ("location", "threshold")),
+        ("MGPPM", "rank", ("intercept",)),
+        ("DichotomousIRT", "binary-item", ("loading_magnitude", "intercept")),
+        ("GTUM-beta_logit", "beta", ("response_precision",)),
+    ],
+)
+def test_dif_targets_feed_each_native_measurement_law(declaration, kind, targets):
+    import pandas as pd
+
+    import pyfcirt as fc
+
+    pytest.importorskip("formulae")
+    source = declaration_input(declaration, kind)
+    model = fc.Model(source)
+    people = pd.DataFrame({"person_id": [1, 2], "site": ["A", "B"]})
+    channel = "items" if isinstance(source, fc.ItemInput) else "fc"
+    available = model.available_covariate_targets(kind="dif").set_index("target")
+    selection = available.loc[[f"{channel}.{target}" for target in targets]]
+    assert set(selection.predictor_level) == {"person"}
+    if "response_precision" in targets:
+        assert selection.loc["fc.response_precision", "level"] == "measurement"
+    model.add_dif_terms(
+        selection.index.tolist(),
+        person_data=people,
+        groups="site",
+    )
+    prepared = model.prepared
+    for slot in (slot for batch in prepared.batches for slot in batch.slots if slot.key in targets):
+        assert slot.effects
+        layout = prepared.parameter_layouts[slot.kind]
+        affected = slot.entry_index.ravel()[slot.effects[0].position]
+        assert np.isnan(layout.fixed.ravel()[affected]).all()
+        if slot.kind in {"location", "residual_variance", "response_precision", "loading"}:
+            assert slot.effects[0].link == "log"
+    native = model.build()
+    assert np.isfinite(native.compile_logp(mode="JAX")(native.initial_point(random_seed=29)))
+    prior = fc.prior_predictive(model, draws=2, random_seed=31, store=False)
+    for response in model._bindings.responses:
+        simulated = prior.prior_predictive[response.batch.response_name].values
+        assert np.isfinite(simulated).all()
+
+    if "response_precision" in targets or declaration == "DichotomousIRT":
+        point = prior.prior.dataset.isel(chain=0, draw=0, drop=True)
+        fixed = fc.score_model(model, source.responses, parameters=point, person_data=people)
+        assert {rv.name for rv in fixed.build().free_RVs} == {"theta"}
+        assert np.isfinite(fixed.build().compile_logp(mode="JAX")(fixed.build().initial_point()))
 
 
 @pytest.mark.parametrize("precision", ["float32", "float64"])
@@ -826,7 +892,8 @@ def test_location_conditionals_include_truncation_normalizer(side):
 
     from scipy.special import log_ndtr
 
-    from pyfcirt.models.graph import ParameterFactory, RegressionBinding
+    from pyfcirt.covariates.model import RegressionBinding
+    from pyfcirt.models.graph import ParameterFactory
 
     mean = np.array([-0.8, 0.6])
     scale = np.array([0.7, 1.1])

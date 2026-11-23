@@ -102,6 +102,7 @@ class _Parameter:
     ordered: bool = False
     shared: bool = False
     regression: bool = False
+    person_link: Literal["identity", "log"] | None = None
     fixed_for_scoring: bool = True
 
 
@@ -118,7 +119,11 @@ _RANKING_INTERCEPT = _Parameter(
     regression=True,
 )
 _RESIDUAL_VARIANCE = _Parameter(
-    key="residual_variance", axes=("statement",), reference_value=0.5, domain="positive"
+    key="residual_variance",
+    axes=("statement",),
+    reference_value=0.5,
+    domain="positive",
+    person_link="log",
 )
 _STATEMENT_LOCATION_PRIORS = {
     "location_positive": _normal_role(2, bounds=(0, None)),
@@ -145,7 +150,9 @@ _CUTPOINTS = _Parameter(
 )
 _BETA_COMPARISON = (
     replace(_CUTPOINTS, kind="comparison_offset"),
-    _Parameter(key="response_precision", axes=(), scope="measurement", domain="positive"),
+    _Parameter(
+        key="response_precision", axes=(), scope="measurement", domain="positive", person_link="log"
+    ),
 )
 
 
@@ -462,7 +469,8 @@ class PopulationSpec(_MeasurementSpec):
     group: str | None = None
     reference_group: str | int | None = None
     regression_by_group: bool = False
-    theta_residual_scale: Literal["unit", "group"] = "unit"
+    theta_residual_scale: Literal["unit", "group"] | None = None
+    theta_correlation: Literal["group", "shared"] = "group"
     defaults: ClassVar = {
         "trait_correlation": _RoleDefault(_correlation_default),
         "population_mean": _normal_role(),
@@ -472,15 +480,15 @@ class PopulationSpec(_MeasurementSpec):
     def parameter_declarations(self, *, grouped=False):
         """Declare population laws; preparation supplies actual group coordinates."""
         matrix_axes = ("trait", "trait_aux")
-        if grouped:
-            matrix_axes = ("population_group", *matrix_axes)
+        covariance_axes = ("population_group", *matrix_axes) if grouped else matrix_axes
+        correlation_axes = covariance_axes if self.theta_correlation == "group" else matrix_axes
         free_scale = grouped and self.theta_residual_scale == "group"
         return (
             _Parameter(
                 key="trait_correlation",
                 domain="correlation",
                 component="population",
-                axes=matrix_axes,
+                axes=correlation_axes,
                 reference="diagonal",
                 reference_value=1.0,
                 fixed_source="identification",
@@ -508,7 +516,7 @@ class PopulationSpec(_MeasurementSpec):
             _Parameter(
                 key="covariance",
                 component="population",
-                axes=matrix_axes,
+                axes=covariance_axes,
                 derived=True,
                 reference="group_diagonal" if free_scale else "diagonal",
                 reference_value=1.0,
@@ -520,6 +528,10 @@ class PopulationSpec(_MeasurementSpec):
         super().__post_init__()
         if not isinstance(self.regression_by_group, bool):
             raise TypeError("regression_by_group must be bool")
+        if self.theta_correlation not in ("group", "shared"):
+            raise ValueError("theta_correlation must be group or shared")
+        if self.theta_residual_scale is None:
+            object.__setattr__(self, "theta_residual_scale", "group" if self.group else "unit")
         if self.theta_residual_scale not in ("unit", "group"):
             raise ValueError("theta_residual_scale must be unit or group")
         if self.group is not None:
@@ -566,6 +578,20 @@ def conditional_defaults(spec, role) -> dict:
         "intercept_source": "built_in_role",
         "residual_sd_source": "automatic",
     }
+
+
+def person_effect_defaults(spec, role, *, link=None):
+    """Describe the scale of the respondent deviation from a measurement baseline."""
+    if link is None:
+        default = conditional_defaults(spec, role)
+        link = "log" if default["bounds"] is not None else default["link"]
+    return dict(
+        family="Normal",
+        link=link,
+        bounds=None,
+        intercept_source="measurement_baseline",
+        residual_sd_source="automatic",
+    )
 
 
 def regression_defaults(spec, role) -> tuple[TensorVariable, TensorVariable, float]:

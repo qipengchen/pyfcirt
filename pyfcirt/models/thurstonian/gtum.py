@@ -7,7 +7,6 @@ import pymc as pm
 import pytensor.tensor as pt
 
 from pyfcirt.models import categorical
-from pyfcirt.models.graph import slot_values
 from pyfcirt.models.thurstonian.normal import (
     beta_shapes,
     comparison_rv,
@@ -55,10 +54,9 @@ class GTUMDistribution(pm.Distribution):
         )
 
     @classmethod
-    def bind(cls, spec, batch, *, ability, parameters):
+    def bind(cls, spec, batch, *, ability, values):
         """Attach the already prepared comparisons without reinterpreting the design."""
 
-        values = slot_values(batch, parameters)
         loading, location = values["loading_magnitude"], values["location"]
         cuts = values["cutpoints"]
         return cls._create(

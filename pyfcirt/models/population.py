@@ -117,14 +117,26 @@ class PopulationFactory:
         """Resolve fixed population values using the declared correlation and scale axes."""
         correlation, sd = map(np.asarray, cls._from_covariance(covariance))
         if shared_correlation and correlation.ndim > 2:
-            tolerance = 8 * np.finfo(correlation.dtype).eps
-            if not np.allclose(correlation, correlation[:1], rtol=tolerance, atol=tolerance):
-                raise ValueError("Fixed covariance groups violate their declared shared R")
-            correlation = correlation[0]
+            correlation = cls.restrict_shared_correlation(correlation)
         return dict(
             trait_correlation=correlation,
             population_sd=sd.reshape(sd_shape),
         )
+
+    @staticmethod
+    def restrict_shared_correlation(correlation):
+        """Verify and remove the group axis, preserving any leading sample dimensions."""
+        correlation = np.asarray(correlation)
+        tolerance = 8 * np.finfo(correlation.dtype).eps
+        shared = correlation[..., :1, :, :]
+        if not np.allclose(correlation, shared, rtol=tolerance, atol=tolerance):
+            raise ValueError("Covariance groups violate their declared shared R")
+        return shared[..., 0, :, :]
+
+    @classmethod
+    def validate_shared_covariance(cls, covariance):
+        correlation, _ = cls._from_covariance(covariance)
+        cls.restrict_shared_correlation(correlation)
 
     @staticmethod
     def moments(group_index, group_mean, covariance, *, regression_mean=None):

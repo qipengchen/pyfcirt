@@ -20,8 +20,14 @@ Define population grouping, identifying scales and priors for abilities.
 : Estimate separate theta slopes by group. Default: `False`.
 
 `theta_residual_scale` : {"unit", "group"}
-: `"unit"` fixes SDs to one (default). `"group"` estimates eligible SDs
-  outside the reference group.
+: `"unit"` fixes SDs to one. `"group"` estimates eligible SDs outside the
+  reference group. By default, a grouped population uses `group` and an
+  ungrouped population uses `unit`.
+
+`theta_correlation` : {"group", "shared"}
+: `"group"` estimates a correlation matrix per group (default).
+  `"shared"` estimates one matrix for all groups. This option is independent of
+  residual SDs and group means. With no grouping, both options use one matrix.
 
 `priors` : mapping or None
 : Native PyMC distributions for free roles.
@@ -33,6 +39,8 @@ Define population grouping, identifying scales and priors for abilities.
 PopulationSpec
 : Population declaration for `Model.prepare(..., population=...)`.
   Group-level arrays use the `population_group` and `trait` coordinates.
+  With `theta_correlation="shared"`, `trait_correlation` has dimensions
+  `trait, trait_aux` and grouped `covariance` keeps its group dimension.
   Covariates predict conditional means.
 
 ## Examples

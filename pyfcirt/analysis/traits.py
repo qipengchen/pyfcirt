@@ -75,7 +75,7 @@ def trait_summary(
     from arviz_base import extract
     from arviz_stats import summary
 
-    from pyfcirt.covariates.model import _theta_mean
+    from pyfcirt.covariates.model import indexed_mean
     from pyfcirt.models.population import PopulationFactory
 
     if type(by_group) is not bool:
@@ -202,7 +202,7 @@ def trait_summary(
         if regression is not None:
             matrix, rows, pools, entries = regression
             coefficients = final["regression_coefficient"].ravel()[entries]
-            regression_mean = _theta_mean(matrix, coefficients, rows, pools)
+            regression_mean = indexed_mean(matrix, coefficients, rows, pools)
         person_mean, person_covariance = PopulationFactory.moments(
             group_index,
             final["population_mean"],

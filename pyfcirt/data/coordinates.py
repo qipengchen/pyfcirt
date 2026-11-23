@@ -142,6 +142,18 @@ class SlotRef:
     key: str
     kind: str
     entry_index: np.ndarray
+    effects: tuple[PersonEffect, ...] = ()
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PersonEffect:
+    """Prepared observed positions and their person and regression pool indices."""
+
+    regression_name: str
+    position: np.ndarray
+    person: np.ndarray
+    pool: np.ndarray
+    link: str
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -255,6 +267,11 @@ class PreparedRegression:
     coefficient_positions: np.ndarray
     coefficient_entries: np.ndarray
     targets: tuple[RegressionTarget, ...]
+    standardized_coefficients: np.ndarray | None = None
+
+    @property
+    def person_effects(self) -> bool:
+        return self.standardized_coefficients is not None
 
 
 def _gather_entries(values, indices, inactive):
@@ -335,8 +352,7 @@ def _regression_parameter_uses(constant, regression_plans):
         if coefficient is None:
             continue
         coefficient_map = constant[coefficient["entry_index"]].values
-        residual = next(b for b in scope["blocks"] if b["key"] == "residual_sd")
-        residual_map = constant[residual["entry_index"]].values
+        residual = next((b for b in scope["blocks"] if b["key"] == "residual_sd"), None)
         grid = constant[scope["coefficient_positions"]]
         positions = grid.values
         trait_by_pool = constant[f"{grid.dims[0]}_trait_index"].values
@@ -345,10 +361,12 @@ def _regression_parameter_uses(constant, regression_plans):
                 continue
             units, pools = np.asarray(target["unit_pools"], dtype=np.int64).T
             term_positions = positions[pools]
-            # Keep each pool's coefficient slots before its residual slot.
-            entries = np.column_stack(
-                (coefficient_map.ravel()[term_positions], residual_map[pools])
-            )
+            entries = coefficient_map.ravel()[term_positions]
+            slots = term_positions
+            if residual is not None:
+                residual_map = constant[residual["entry_index"]].values
+                entries = np.column_stack((entries, residual_map[pools]))
+                slots = np.column_stack((slots, pools))
             is_residual = np.broadcast_to(
                 np.arange(entries.shape[1]) == positions.shape[1], entries.shape
             )
@@ -358,7 +376,7 @@ def _regression_parameter_uses(constant, regression_plans):
                     entries.ravel(),
                     np.repeat(units, entries.shape[1]),
                     np.where(is_residual, "residual_sd", "coefficients").ravel(),
-                    np.column_stack((term_positions, pools)).ravel(),
+                    slots.ravel(),
                     np.repeat(trait_by_pool[pools], entries.shape[1]),
                 )
             )
@@ -477,7 +495,8 @@ def finalize_parameters(constant: LayoutBuilder | xr.Dataset, *, changed=None) -
             binding = block["binding_id"]
             name = scope["name"]
             block["point_parameter"] = name in measurement_scopes or (
-                name == population_scope and block["fixed_for_scoring"]
+                (name == population_scope or scope.get("person_effects", False))
+                and block["fixed_for_scoring"]
             )
             values = block_constraint(prior, block).ravel()
             shape, axes = tuple(block["shape"]), tuple(block["dims"])

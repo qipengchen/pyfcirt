@@ -92,6 +92,7 @@ indices and constraints instead of reprocessing raw tables or reselecting anchor
 - `pyfcirt/covariates/specification.py` owns Regression declarations/options and formula
   syntax, independently of concrete measurement target indices.
 - `pyfcirt/covariates/design.py` fits/applies Formulae encoders and training transforms.
+- `pyfcirt/covariates/pairwise.py` owns the normalized pairwise group prior and its RNG.
 - `pyfcirt/covariates/model.py` creates each prepared regression's mean/scale expressions
   once, then routes them to target nodes. It does not refit feature encoders.
 
@@ -104,6 +105,8 @@ indices and constraints instead of reprocessing raw tables or reselecting anchor
   and pooled marginal response log likelihood.
 - `pyfcirt/analysis/summary.py` presents data/model/response summaries and coefficient
   statistics using existing entries, usage relationships and native ArviZ.
+- `pyfcirt/analysis/dif.py` contrasts respondent profiles using the fitted regression encoders
+  and posterior measurement parameters.
 - `pyfcirt/analysis/traits.py` summarizes final population/trait moments with current-person
   and group context; it does not re-estimate model parameters.
 - `pyfcirt/analysis/checks.py` computes Pearson PPP and residual discrepancies from the

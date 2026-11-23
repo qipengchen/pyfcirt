@@ -35,13 +35,16 @@ wrap_model <- function(py) {
                    categories = as.list(categories), person_id_column = person_id_column, ...)
       invisible(m)
     },
+    set_population = function(group = NULL, reference_group = NULL, person_data = NULL, ...) {
+      py$set_population(group = group, reference_group = reference_group,
+                        person_data = person_data, ...)
+      invisible(m)
+    },
     prepare = function(..., population = NULL) {
       if (is.list(population)) {
         population <- do.call(backend()$PopulationSpec, population)
       }
-      options <- list(...)
-      options$population <- population
-      do.call(py$prepare, options)
+      do.call(py$prepare, c(list(...), if (!is.null(population)) list(population = population)))
       invisible(m)
     },
     set_priors = function(priors) {
@@ -51,6 +54,29 @@ wrap_model <- function(py) {
     add_regressions = function(formulas, ...) {
       py$add_regressions(formulas, ...)
       invisible(m)
+    },
+    available_covariate_targets = function(level = NULL, kind = NULL) {
+      as_table(py$available_covariate_targets(level = level, kind = kind))
+    },
+    add_dif_terms = function(targets, formula = NULL, ...) {
+      options <- list(...)
+      if (is.list(options$groups)) {
+        options$groups <- lapply(options$groups, sample_label)
+      }
+      do.call(py$add_dif_terms, c(list(targets = dif_targets(targets), formula = formula), options))
+      invisible(m)
+    },
+    dif_summary = function(contrasts = NULL, at = NULL, prob = 0.95, significant_only = FALSE) {
+      if (!is.null(contrasts)) {
+        contrasts <- lapply(contrasts, function(endpoints) {
+          endpoints <- lapply(endpoints, function(profile) {
+            if (length(profile) > 1L) sample_label(profile) else profile
+          })
+          sample_label(endpoints)
+        })
+      }
+      as_table(py$dif_summary(contrasts = contrasts, at = at, prob = prob,
+                             significant_only = significant_only))
     },
     fit = function(..., var_names = NULL) {
       py$fit(..., var_names = selection(var_names))
@@ -119,6 +145,24 @@ scoring_inputs <- function(responses, format) {
     format <- NULL
   }
   list(new_responses = responses, format = format)
+}
+
+dif_targets <- function(targets) {
+  if (!is.list(targets)) return(selection(targets))
+  lapply(targets, function(config) {
+    if (!length(config)) return(reticulate::dict())
+    anchors <- config$anchors
+    if (is.data.frame(anchors)) {
+      keys <- anchors[c("block_id", "statement_1", "statement_2")]
+      keys[] <- lapply(keys, function(column) if (is.factor(column)) as.character(column) else column)
+      config$anchors <- lapply(seq_len(nrow(keys)), function(i) {
+        sample_label(unname(as.list(keys[i, , drop = FALSE])))
+      })
+    } else if (!is.null(anchors)) {
+      config$anchors <- selection(anchors)
+    }
+    config
+  })
 }
 
 selection <- function(ids) if (is.null(ids)) NULL else as.list(ids)

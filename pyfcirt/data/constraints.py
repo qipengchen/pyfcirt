@@ -137,6 +137,8 @@ def _declared_layouts(ds, name, declarations, axes, overrides=None, *, reference
             "role", None if declaration.derived else declaration.role or declaration.key
         )
         layout = _layout(ds, name, declaration.key, dims, role, **options)
+        if declaration.person_link is not None:
+            layout["person_link"] = declaration.person_link
         if declaration.shared:
             layout["shared"] = True
         layouts.append(layout)
@@ -173,6 +175,11 @@ def freeze_prior_shapes(ds, layout, priors, *, only_roles=None):
                 )
             cutpoints = layout_shape[-1]
             shape = (count // cutpoints,)
+        elif layout.get("joint_per_pool"):
+            width = layout_shape[-1]
+            if event != (width,) or count % width:
+                raise ValueError(f"{role}: a joint DIF prior must cover each full coefficient pool")
+            shape = (count // width, width)
         elif event:
             if int(np.prod(event)) != count:
                 raise ValueError(

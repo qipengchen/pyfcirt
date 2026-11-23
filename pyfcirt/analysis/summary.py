@@ -824,7 +824,8 @@ def _model_laws(prepared, fixed, active, *, details):
     unit_models = prepared.constant_data.unit_model.values
     conditionals = {
         (target.binding_id, target.prior_role): target
-        for _, targets in active
+        for plan, targets in active
+        if not plan.person_effects
         for target in targets
     }
     laws, regressions, known_population = {}, [], {}
@@ -843,7 +844,7 @@ def _model_laws(prepared, fixed, active, *, details):
                 for target in targets
             )
         )
-        regressions.append((", ".join(target_names), plan.design, applicable, len(pools), scale))
+        regressions.append((plan, ", ".join(target_names), applicable, len(pools), scale))
     entries_by_binding, templates = {}, {}
     for layout in prepared.parameters:
         owners = layout.entry_data.binding_id.values
@@ -1072,10 +1073,26 @@ def model_summary(data: Model | PreparedInputs, *, details: bool = False) -> str
                     for key in ("center_predictors", "standardize", "coefficient_noncentered")
                 )
             )
-    for target, design, applicable, count, scale in regressions:
-        lines.append(f"Regression: {target} ~ {design.attrs['formula']}")
+    for plan, target, applicable, count, scale in regressions:
+        heading = "DIF" if plan.person_effects else "Regression"
+        lines.append(f"{heading}: {target} ~ {plan.design.attrs['formula']}")
         names = ", ".join(applicable) + "; " if mixed else ""
         lines.append(f"  {names}{scale}; {count} independent parameter pool(s)")
+        if plan.person_effects:
+            encoding = plan.design.attrs
+            reference = (
+                {":".join(encoding["group_columns"]): encoding["group_levels"][0]}
+                if "group_columns" in encoding
+                else {
+                    record["name"]: record["levels"][0]
+                    for record in encoding["feature_records"]
+                    if record["kind"] == "category"
+                }
+            )
+            if reference:
+                lines.append(f"  Reference levels: {reference}")
+    for (role, formula), anchors in prepared.dif_anchors.items():
+        lines.append(f"DIF anchors ({role} ~ {formula}): {anchors!r}")
     sections = {}
     law_counts = Counter((model, label, fixed) for model, label, _, _, fixed in laws)
     for (model, label, law, _, is_fixed), parts in laws.items():

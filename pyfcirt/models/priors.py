@@ -27,6 +27,8 @@ from pytensor.graph.basic import Constant
 from pytensor.tensor.random.op import RandomVariable
 from pytensor.tensor.variable import TensorVariable
 
+from pyfcirt.covariates.pairwise import PairwiseL1RV
+
 _preparation = ContextVar("prior_preparation", default=None)
 
 
@@ -97,7 +99,9 @@ def _native(prior):
     if prior.name is not None:
         raise ValueError("A prior template must be unnamed and unobserved; use pm.*.dist")
     op = prior.owner.op
-    if not type(op).__module__.startswith(("pytensor.", "pymc.")) or not (
+    if not (
+        type(op).__module__.startswith(("pytensor.", "pymc.")) or isinstance(op, PairwiseL1RV)
+    ) or not (
         isinstance(op, RandomVariable)
         or isinstance(op, SymbolicRandomVariable)
         and op.extended_signature is not None

@@ -15,7 +15,7 @@ from pymc.distributions.transforms import LogTransform, Transform
 from pytensor import wrap_jax
 
 from pyfcirt.models import categorical
-from pyfcirt.models.graph import ResponseBinding, observe_augmented, slot_values
+from pyfcirt.models.graph import ResponseBinding, observe_augmented
 from pyfcirt.models.thurstonian.normal import region_logcdf, sobol_nodes, sobol_rule
 
 
@@ -80,8 +80,7 @@ class TIRTRankDistribution(pm.Distribution):
         )
 
     @classmethod
-    def bind(cls, spec, batch, *, ability, parameters):
-        values = slot_values(batch, parameters)
+    def bind(cls, spec, batch, *, ability, values):
         loading = values["loading_magnitude"] * pt.cast(
             batch.keying, values["loading_magnitude"].dtype
         )

@@ -72,8 +72,13 @@ Register data using \code{m$add_fc()} or \code{m$add_items()} and call
 a population list such as \code{list(group = "school", reference_group = "A")}.
 Use \code{m$data_coverage()} to check
 administration counts, or \code{m$response_data()} to extract observed rows.
-Use \code{m$set_priors()}, \code{m$add_regressions()}, and \code{m$fit()} to
-configure and estimate the prepared model.
+Use \code{m$set_population()} before preparation to register the group column,
+reference group and respondent table. After preparation, use
+\code{m$set_priors()}, \code{m$add_regressions()}, or the experimental
+\code{m$add_dif_terms()} before \code{m$fit()}. The DIF interface accepts
+a character vector of targets or a named list of target options.
+\code{m$available_covariate_targets()} and \code{m$dif_summary()} return
+data frames with target or contrast labels.
 
 Obtain predictive draws with \code{m$prior_predictive()} and
 \code{m$posterior_predictive()}. The fitted model also provides
