@@ -66,13 +66,13 @@ conda install -c qipengchen/label/beta -c conda-forge pyfcirt
 CPU:
 
 ```console
-docker run --rm -it ghcr.io/qipengchen/pyfcirt:0.1.0b1-cpu
+docker run --rm -it ghcr.io/qipengchen/pyfcirt:0.1.0b2-cpu
 ```
 
 NVIDIA GPU (CUDA 13):
 
 ```console
-docker run --rm -it --gpus all ghcr.io/qipengchen/pyfcirt:0.1.0b1-cuda13
+docker run --rm -it --gpus all ghcr.io/qipengchen/pyfcirt:0.1.0b2-cuda13
 ```
 
 See [GPU setup](https://qipengchen.github.io/pyfcirt/examples/gpu.html) for compatibility and verification.

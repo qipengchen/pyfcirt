@@ -58,6 +58,21 @@ jobs:
             main="$(git ls-remote origin refs/heads/main | cut -f1)"
             test "$main" = "$GITHUB_SHA"
           fi
+      - name: Extract versioned release notes
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          awk -v heading="## $VERSION" '
+            $0 == heading { section = 1; next }
+            section && /^## / { exit }
+            section { print }
+          ' CHANGELOG.md > "$RUNNER_TEMP/release-notes.md"
+          grep -q '[^[:space:]]' "$RUNNER_TEMP/release-notes.md"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/release-notes.md
+          if-no-files-found: error
       - name: Build wheel and source distribution
         run: |
           python -m pip install build twine
@@ -227,12 +242,11 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_REPO: ${{ github.repository }}
     steps:
+      - uses: actions/download-artifact@v7
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}
       - name: Create the GitHub prerelease
         run: |
-          cat > release-notes.md <<'EOF'
-          First public beta of PyFCIRT. See the [installation guide](https://qipengchen.github.io/pyfcirt/guide/getting_started.html#installation) for PyPI, conda and container installation.
-
-          The CUDA 13 image includes JAX GPU support for supported NVIDIA GPUs.
-          EOF
           gh release create "$GITHUB_REF_NAME" --verify-tag --prerelease \
-            --title "PyFCIRT $GITHUB_REF_NAME" --notes-file release-notes.md
+            --title "PyFCIRT $GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/release-notes.md"
