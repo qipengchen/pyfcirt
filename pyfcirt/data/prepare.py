@@ -59,7 +59,7 @@ from pyfcirt.data.encoding import (
 from pyfcirt.data.grouping import theta_target_indices
 from pyfcirt.data.regressions import _bind_regressions, _resolve_regressions
 from pyfcirt.models.population import PopulationFactory
-from pyfcirt.models.priors import PriorPreparation, prior_identity
+from pyfcirt.models.priors import PriorPreparation
 from pyfcirt.models.specification import PopulationSpec
 
 if TYPE_CHECKING:
@@ -1040,37 +1040,6 @@ class PreparedInputs:
     def person_effect_regressions(self):
         """The regressions whose design rows correspond to current people."""
         return tuple(plan for plan in self.regressions if plan.person_effects)
-
-    @cached_property
-    def dif_prior_identity(self):
-        """Identify the resolved DIF priors and their fitted coefficient bindings."""
-        plans = self.person_effect_regressions
-        if not plans:
-            return None
-        definitions = []
-        for plan in plans:
-            priors = []
-            for block in plan.blocks:
-                for role, positions in block.prior_groups:
-                    if role in block.priors:
-                        priors.append(
-                            (block.key, role, positions, prior_identity(block.priors[role]))
-                        )
-            definitions.append(
-                (
-                    plan.design.X.variable,
-                    plan.design.attrs["feature_records"],
-                    plan.design.attrs.get("group_levels"),
-                    plan.coefficient_entries,
-                    plan.standardized_coefficients,
-                    priors,
-                )
-            )
-        targets = {
-            kind: [(plan.name, pools, link) for plan, pools, link in bindings]
-            for kind, bindings in self.person_effect_pools.items()
-        }
-        return _identity_digest(("dif-priors-v1", definitions, targets))
 
     @cached_property
     def dif_anchors(self):

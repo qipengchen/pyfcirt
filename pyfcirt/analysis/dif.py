@@ -58,7 +58,9 @@ def _profiles(plans, at, contrasts):
                 not isinstance(value, tuple) or len(value) != len(columns) for value in (low, high)
             ):
                 raise ValueError(f"{key}: compare tuples in the declared group column order")
-            pairs.setdefault((key, columns, low, high), set()).update(active_plans)
+            pairs.setdefault((key, columns, low, high), {}).update(
+                dict.fromkeys(active_plans, len(levels))
+            )
 
     @cache
     def encode(name, comparison):
@@ -157,7 +159,7 @@ def _contrast_offsets(matrix, coefficients):
     return np.einsum("ct,net->cne", matrix, coefficients)
 
 
-def _check_bf_plan(prepared, plan, matrix):
+def _check_bf_plan(prepared, plan, matrix, *, group_count):
     """Check that the contrast frees one independent coefficient under the null."""
     import pymc as pm
 
@@ -165,16 +167,10 @@ def _check_bf_plan(prepared, plan, matrix):
     from pyfcirt.covariates.spike_slab import SpikeAndSlabRV
     from pyfcirt.models.priors import describe_prior
 
-    fitted = plan.design
-    records = fitted.attrs["feature_records"]
-    levels = fitted.attrs.get("group_levels")
-    if levels is None and len(records) == 1 and records[0]["kind"] == "category":
-        levels = records[0]["levels"]
     models = prepared.constant_data.unit_model.values
     if (
-        levels is None
-        or len(levels) != 2
-        or matrix.shape != (2, 1)
+        group_count != 2
+        or matrix.shape[1] != 1
         or matrix[0, 0] == matrix[1, 0]
         or any(models[index] != "TIRT" for target in plan.targets for index in target.unit_indices)
         or np.any(plan.standardized_coefficients)
@@ -188,15 +184,9 @@ def _check_bf_plan(prepared, plan, matrix):
             probability, _ = (value.item() for _, value in args)
             inclusion.add(probability)
             continue
-        inclusion.add(None)
-        if isinstance(op, PairwiseL1RV):
-            continue
-        if not isinstance(op, (pm.Normal.rv_type, pm.Laplace.rv_type)):
+        if not isinstance(op, (PairwiseL1RV, pm.Normal.rv_type, pm.Laplace.rv_type)):
             raise ValueError("Bayes factors require a supported continuous or spike-and-slab prior")
-        _, args = describe_prior(prior)
-        center, scale = (value for _, value in args)
-        if center.ndim or scale.ndim or center != 0 or not np.isfinite(scale) or scale <= 0:
-            raise ValueError("Bayes factors require zero-centered, fixed-scale coefficient priors")
+        inclusion.add(None)
     if len(inclusion) != 1:
         raise ValueError("Each target requires a common prior inclusion probability")
     return inclusion.pop()
@@ -248,22 +238,13 @@ def _bf_fields(posterior, prior):
     return {"BF10": evidence[:, 0], "BF01": evidence[:, 1]}
 
 
-def _bf_prior_reader(model, pairs, *, draws, random_seed, assume_same_prior):
+def _bf_prior_reader(model, pairs, *, draws, random_seed):
     if len(pairs) != 1:
         raise ValueError("Select one categorical contrast to compute Bayes factors")
     if isinstance(draws, bool) or not isinstance(draws, Integral) or draws < 40:
         raise ValueError("prior_draws must be an integer of at least 40")
     if model._prior_conditioning() != "full prior" or model._fixed_reference is not None:
         raise ValueError("Bayes factors require the original calibration fit")
-    identity = model.idata.attrs.get("dif_prior_identity")
-    if identity is None:
-        if not assume_same_prior:
-            raise ValueError(
-                "The posterior has no recorded DIF prior identity; verify the fitted priors "
-                "and use assume_same_prior=True"
-            )
-    elif identity != model.prepared.dif_prior_identity:
-        raise ValueError("The fitted DIF coefficient priors or bindings differ from the posterior")
 
     @cache
     def read():
@@ -285,15 +266,14 @@ def summarize_dif(
     bayes_factor=False,
     prior_draws=4000,
     random_seed=None,
-    assume_same_prior=False,
 ):
     """Summarize the to-minus-from draws on each measurement parameter's scale."""
     if isinstance(prob, bool) or not isinstance(prob, Real) or not 0 < prob < 1:
         raise ValueError("prob must be between zero and one")
     if not isinstance(significant_only, bool):
         raise TypeError("significant_only must be boolean")
-    if not isinstance(bayes_factor, bool) or not isinstance(assume_same_prior, bool):
-        raise TypeError("bayes_factor and assume_same_prior must be boolean")
+    if not isinstance(bayes_factor, bool):
+        raise TypeError("bayes_factor must be boolean")
     prepared = model.prepared
     plans = prepared.person_effect_regressions
     if not plans:
@@ -307,7 +287,6 @@ def summarize_dif(
             pairs,
             draws=prior_draws,
             random_seed=random_seed,
-            assume_same_prior=assume_same_prior,
         )
         if bayes_factor
         else None
@@ -317,11 +296,11 @@ def summarize_dif(
     results = []
     for kind, bindings in prepared.person_effect_pools.items():
         entries = prepared.parameter_layouts[kind].fixed.size
-        for comparison, active_plans in pairs.items():
+        for comparison, group_counts in pairs.items():
             name, _, low, high = comparison
             affected = np.zeros(entries, dtype=bool)
             for plan, pools, _ in bindings:
-                if plan.name in active_plans:
+                if plan.name in group_counts:
                     affected |= pools >= 0
             positions = np.flatnonzero(affected)
             if not positions.size:
@@ -336,7 +315,7 @@ def summarize_dif(
                     matrix = encode(plan.name, comparison)
                     selected = active_pools[active]
                     offsets = _contrast_offsets(matrix, coefficients[plan.name][:, selected])
-                    if prior_reader is not None and plan.name in active_plans:
+                    if prior_reader is not None and plan.name in group_counts:
                         tested.append((plan, matrix, selected, link, offsets))
                     values[..., active] = offset_parameter(
                         values[..., active], offsets, link, tensor=np
@@ -349,7 +328,9 @@ def summarize_dif(
                 if len(tested) != 1 or len(tested[0][2]) != len(positions):
                     raise ValueError("Bayes factors require one free DIF coefficient per target")
                 plan, matrix, selected, link, offsets = tested[0]
-                inclusion_prob = _check_bf_plan(prepared, plan, matrix)
+                inclusion_prob = _check_bf_plan(
+                    prepared, plan, matrix, group_count=group_counts[plan.name]
+                )
                 contrast_draws = offsets[1] - offsets[0]
                 if inclusion_prob is None:
                     prior = _contrast_offsets(

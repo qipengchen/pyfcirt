@@ -13,7 +13,7 @@ import pyfcirt as fc
 from pyfcirt.analysis.dif import _bf_fields, _spike_evidence
 
 
-def _two_group_tirt(prior, *, prior_options=None):
+def _tirt(prior, *, prior_options=None, sites=("A", "B")):
     pytest.importorskip("formulae")
     blocks = ["B1", "B2", "B3"]
     traits = [("One", "Two"), ("One", "Three"), ("Two", "Three")]
@@ -25,7 +25,7 @@ def _two_group_tirt(prior, *, prior_options=None):
         ],
         columns=["block_id", "position", "statement_id", "trait", "keying"],
     )
-    people = pd.DataFrame({"person_id": np.arange(12), "site": ["A"] * 6 + ["B"] * 6})
+    people = pd.DataFrame({"person_id": np.arange(12), "site": np.repeat(sites, 12 // len(sites))})
     responses = pd.DataFrame(
         {
             "person_id": people.person_id.repeat(len(blocks)).to_numpy(),
@@ -74,14 +74,11 @@ def _prior_as_samples(model, *, draws=1500):
 
 @pytest.mark.parametrize("law", ["normal", "laplace", "pairwise_l1", "truncated_l1"])
 def test_bayes_factor_reuses_fitted_groups_and_prior(law):
-    prior = pm.Normal.dist(0, 0.4) if law == "normal" else law
-    model = _two_group_tirt(prior)
+    prior = pm.Normal.dist(0.12, 0.4) if law == "normal" else law
+    model = _tirt(prior)
     samples = _prior_as_samples(model)
     model.attach_samples(samples)
-    with pytest.raises(ValueError, match="no recorded DIF prior identity"):
-        model.dif_summary({"site": ("A", "B")}, bayes_factor=True)
-
-    options = {"bayes_factor": True, "assume_same_prior": True, "random_seed": 894}
+    options = {"bayes_factor": True, "random_seed": 894}
     direct = model.dif_summary({"site": ("A", "B")}, **options)
     reverse = model.dif_summary({"site": ("B", "A")}, **options)
     interval = model.dif_summary({"site": ("A", "B")})
@@ -95,19 +92,13 @@ def test_bayes_factor_reuses_fitted_groups_and_prior(law):
     assert_allclose(direct["mean"], -reverse["mean"])
 
 
-def test_bayes_factor_checks_recorded_prior_after_attach():
-    original = _two_group_tirt(pm.Normal.dist(0, 0.4))
-    samples = _prior_as_samples(original, draws=300)
-    samples.attrs["dif_prior_identity"] = original.prepared.dif_prior_identity
-    restored = _two_group_tirt(pm.Normal.dist(0, 0.4))
-    restored.attach_samples(samples)
-    rows = restored.dif_summary({"site": ("A", "B")}, bayes_factor=True, random_seed=894)
-    assert rows.BF10.notna().all()
-
-    different = _two_group_tirt(pm.Normal.dist(0, 1.0))
-    different.attach_samples(samples)
-    with pytest.raises(ValueError, match="differ from the posterior"):
-        different.dif_summary({"site": ("A", "B")}, bayes_factor=True, assume_same_prior=True)
+def test_bayes_factor_rejects_a_single_comparison_from_three_groups():
+    model = _tirt("laplace", sites=("A", "B", "C"))
+    model.attach_samples(_prior_as_samples(model, draws=80))
+    contrast = {"site": ("A", "B")}
+    assert len(model.dif_summary(contrast)) == 3
+    with pytest.raises(ValueError, match="two-group TIRT"):
+        model.dif_summary(contrast, bayes_factor=True)
 
 
 def test_continuous_bayes_factor_matches_normal_marginal_likelihood():
@@ -151,15 +142,12 @@ def test_continuous_bayes_factor_matches_normal_marginal_likelihood():
 
 
 def test_spike_and_slab_native_prior_and_posterior_odds():
-    model = _two_group_tirt(
-        "spike_and_slab", prior_options={"inclusion_prob": 0.25, "slab_sd": 0.4}
-    )
+    model = _tirt("spike_and_slab", prior_options={"inclusion_prob": 0.25, "slab_sd": 0.4})
     native = model.build()
     assert sum(rv.name.endswith("_included") for rv in native.free_RVs) == 2
     assert sum(rv.name.endswith("_slab") for rv in native.free_RVs) == 2
 
     samples = _prior_as_samples(model)
-    samples.attrs["dif_prior_identity"] = model.prepared.dif_prior_identity
     coefficients = samples.posterior.regression_coefficient.values
     model.attach_samples(samples)
     result = model.dif_summary({"site": ("A", "B")}, bayes_factor=True)

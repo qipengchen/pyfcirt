@@ -353,7 +353,7 @@ class Model:
             {
                 key: value
                 for key, value in idata.attrs.items()
-                if key.startswith("sampling_") or key in {"sampling", "dif_prior_identity"}
+                if key.startswith("sampling_") or key == "sampling"
             }
         )
         coordinates = scoring.CALIBRATION_COORDINATES
@@ -384,11 +384,6 @@ class Model:
         )
 
     def _publish_samples(self, sampled, *, sampling_attrs):
-        if (
-            self._prior_conditioning() == "full prior"
-            and (identity := self.prepared.dif_prior_identity) is not None
-        ):
-            sampling_attrs = {**sampling_attrs, "dif_prior_identity": identity}
         self._idata = finalize_samples(
             self.prepared,
             self.idata,
@@ -530,7 +525,6 @@ class Model:
         bayes_factor: bool = False,
         prior_draws: int = 4000,
         random_seed: int | None = None,
-        assume_same_prior: bool = False,
     ) -> pd.DataFrame:
         """Summarize posterior differences and optional per-parameter Bayes factors.
 
@@ -548,7 +542,6 @@ class Model:
             bayes_factor=bayes_factor,
             prior_draws=prior_draws,
             random_seed=random_seed,
-            assume_same_prior=assume_same_prior,
         )
 
     def set_priors(self, priors: Mapping[str, TensorVariable]) -> None:

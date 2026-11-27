@@ -101,7 +101,7 @@ identification under sparse DIF when anchor items are unknown.
 ```text
 model.dif_summary(
     contrasts=None, *, at=None, prob=0.95, significant_only=False,
-    bayes_factor=False, prior_draws=4000, random_seed=None, assume_same_prior=False,
+    bayes_factor=False, prior_draws=4000, random_seed=None,
 )
 ```
 
@@ -126,7 +126,7 @@ individual comparisons.
 
 Set `bayes_factor=True` to add Savage–Dickey Bayes factors for one two-group
 TIRT contrast and independent, fixed-scale coefficient priors. Supply one
-categorical comparison through `contrasts`. Supported priors are zero-centered
+categorical comparison through `contrasts`. Supported priors are fixed-scale
 Normal or Laplace, Pairwise L1, and truncated Pairwise L1. Each reported target
 must have a single free coefficient for the requested comparison. Anchors and
 fixed parameters have no free contrast to test.
@@ -140,10 +140,9 @@ measurement scales, and `significant_only` still filters by the interval rule.
 `prior_draws=4000` controls draws from the fitted coefficient priors and must
 be at least 40.
 `random_seed` makes prior sampling reproducible. Both the prior and posterior
-draws use the same fitted encoder and contrast. To reuse an older or externally
-attached posterior without recorded prior identity, set `assume_same_prior=True`
-only after verifying that its original coefficient priors and bindings match.
-The check uses recorded prior identity when available.
+draws use the same fitted encoder and contrast.
+When attaching posterior draws, rebuild the model with the DIF coefficient
+priors and bindings used to fit those draws.
 
 For continuous priors, the table reports the BF values returned by
 [ArviZ](https://python.arviz.org/projects/stats/en/latest/api/generated/arviz_stats.bayes_factor.html).

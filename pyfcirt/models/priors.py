@@ -193,20 +193,6 @@ def prior_shape(prior):
     return template.batch, template.event
 
 
-def prior_identity(prior):
-    """Identify the prior operator and resolved inputs independently of display names."""
-    op = type(prior.owner.op)
-    template = _inspect(prior)
-    return (
-        op.__module__,
-        op.__qualname__,
-        prior.dtype,
-        template.batch,
-        template.event,
-        template.arguments,
-    )
-
-
 def describe_prior(prior):
     """Return the family name and named constant arguments for presentation."""
     template = _inspect(prior)

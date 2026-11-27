@@ -25,7 +25,7 @@ Score the next batch from the scored model to reuse its selection. Use `build()`
 to access the native PyMC model.
 For experimental DIF, call `model.add_dif_terms()` before fitting. Use
 `model.dif_summary()` for intervals or pass one two-group TIRT `contrasts` mapping
-with `bayes_factor=True` for per-parameter evidence computed from the fitted priors.
+with `bayes_factor=True` for per-parameter evidence computed from the model's DIF priors.
 For continuous priors, the result includes ArviZ's BF values and uses its native warnings.
 Use native PyMC compound sampling for experimental `prior="spike_and_slab"` terms.
 Import distributions for custom PyMC models from `pyfcirt.models.dist`.
