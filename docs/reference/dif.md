@@ -145,11 +145,12 @@ attached posterior without recorded prior identity, set `assume_same_prior=True`
 only after verifying that its original coefficient priors and bindings match.
 The check uses recorded prior identity when available.
 
-`bf_status` reports `ok`, `few_draws_near_zero`, or `invalid_density`. For
-draws that bracket zero, fewer than 20 on either side in either distribution
-marks limited information and retains any finite estimate. If zero lies
-outside the density grid, the BF and status are empty. The effect estimate
-and interval remain available.
+For continuous priors, the table reports the BF values returned by
+[ArviZ](https://python.arviz.org/projects/stats/en/latest/api/generated/arviz_stats.bayes_factor.html).
+ArviZ warns when zero is outside the prior or posterior draw range. Its
+fallback in that case depends on the ArviZ version, so the exact BF magnitude
+can be sensitive to the version. If the density estimate fails, the BF is
+empty and the effect estimate and interval remain available.
 
 For a fitted `"spike_and_slab"` term, the table also reports
 `inclusion_probability`, the posterior fraction of draws in the slab.

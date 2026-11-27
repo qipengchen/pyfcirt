@@ -227,20 +227,10 @@ def _spike_evidence(effects, inclusion_prob):
 
 def _bf_fields(posterior, prior):
     """Compute evidence one parameter at a time so invalid KDEs stay local."""
-    count = posterior.shape[1]
-    evidence = np.full((count, 2), np.nan)
-    status = np.full(count, None, dtype=object)
+    evidence = np.full((posterior.shape[1], 2), np.nan)
     for index, (post, before) in enumerate(zip(posterior.T, prior.T, strict=True)):
         if any(not np.isfinite(values).all() or np.ptp(values) == 0 for values in (post, before)):
-            status[index] = "invalid_density"
             continue
-        # The ArviZ KDE grid does not estimate the density beyond the draws.
-        if any(not values.min() < 0 < values.max() for values in (post, before)):
-            continue
-        few_draws = any(
-            min(np.count_nonzero(values < 0), np.count_nonzero(values > 0)) < 20
-            for values in (post, before)
-        )
         data = xr.DataTree.from_dict(
             {
                 "/posterior": xr.Dataset({"effect": (("chain", "draw"), post[None])}),
@@ -250,18 +240,12 @@ def _bf_fields(posterior, prior):
         try:
             result = arviz_bayes_factor(data, "effect")
         except (ValueError, FloatingPointError, ZeroDivisionError):
-            status[index] = "invalid_density"
             continue
         if isinstance(result, dict):  # ArviZ Stats 1.0 returned a mapping.
-            result = np.asarray([result["effect"][kind] for kind in ("BF10", "BF01")])
+            evidence[index] = [result["effect"][kind] for kind in ("BF10", "BF01")]
         else:
-            result = result["effect"].sel(bf_type=["BF10", "BF01"]).to_numpy()
-        if np.isfinite(result).all() and (result > 0).all():
-            evidence[index] = result
-            status[index] = "few_draws_near_zero" if few_draws else "ok"
-        else:
-            status[index] = "invalid_density"
-    return {"BF10": evidence[:, 0], "BF01": evidence[:, 1], "bf_status": status}
+            evidence[index] = result["effect"].sel(bf_type=["BF10", "BF01"]).to_numpy()
+    return {"BF10": evidence[:, 0], "BF01": evidence[:, 1]}
 
 
 def _bf_prior_reader(model, pairs, *, draws, random_seed, assume_same_prior):

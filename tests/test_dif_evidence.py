@@ -5,6 +5,7 @@ import pandas as pd
 import pymc as pm
 import pytest
 import xarray as xr
+from arviz_stats import bayes_factor
 from numpy.testing import assert_allclose
 from scipy.stats import norm
 
@@ -87,7 +88,7 @@ def test_bayes_factor_reuses_fitted_groups_and_prior(law):
     assert direct[interval.columns].equals(interval)
     assert direct.units.tolist() == [("B3",)] * 3
     assert direct.bf_scale.tolist() == ["log_loading", "log_loading", "cutpoint"]
-    assert direct.bf_status.tolist() == ["ok"] * 3
+    assert "bf_status" not in direct.columns
     assert_allclose(direct.BF10, 1, atol=0.22)
     assert_allclose(direct.BF10 * direct.BF01, 1)
     assert_allclose(direct.BF10, reverse.BF10, rtol=0.015)
@@ -128,10 +129,25 @@ def test_continuous_bayes_factor_matches_normal_marginal_likelihood():
     )
     posterior[:, 1] = np.abs(posterior[:, 1]) + 1
     posterior[:, 2] = 0
-    result = _bf_fields(posterior, prior)
-    assert result["bf_status"].tolist() == ["ok", None, "invalid_density"]
+    with pytest.warns(UserWarning, match="outside the posterior range"):
+        result = _bf_fields(posterior, prior)
     assert_allclose(result["BF10"][0], expected, rtol=0.055)
-    assert np.isnan(result["BF10"][1:]).all()
+    assert np.isnan(result["BF10"][2])
+    assert "bf_status" not in result
+
+    data = xr.DataTree.from_dict(
+        {
+            "/posterior": xr.Dataset({"effect": (("chain", "draw"), posterior[None, :, 1])}),
+            "/prior": xr.Dataset({"effect": (("chain", "draw"), prior[None, :, 1])}),
+        }
+    )
+    with pytest.warns(UserWarning, match="outside the posterior range"):
+        native = bayes_factor(data, "effect")
+    for kind in ("BF10", "BF01"):
+        value = (
+            native["effect"][kind] if isinstance(native, dict) else native.effect.sel(bf_type=kind)
+        )
+        assert result[kind][1] == float(value)
 
 
 def test_spike_and_slab_native_prior_and_posterior_odds():
