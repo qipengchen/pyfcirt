@@ -3,10 +3,12 @@
 from collections.abc import Mapping
 from functools import cache
 from itertools import combinations
-from numbers import Real
+from numbers import Integral, Real
 
 import numpy as np
 import pandas as pd
+import xarray as xr
+from arviz_stats import bayes_factor as arviz_bayes_factor
 from arviz_stats import eti
 
 from pyfcirt.analysis.output import posterior_samples
@@ -151,18 +153,180 @@ def _entry_labels(prepared, kind, positions):
     return parameter[["parameter_id", "units", "statement", "pair", "trait", "position"]]
 
 
-def summarize_dif(model, *, contrasts=None, at=None, prob=0.95, significant_only=False):
+def _contrast_offsets(matrix, coefficients):
+    return np.einsum("ct,net->cne", matrix, coefficients)
+
+
+def _check_bf_plan(prepared, plan, matrix):
+    """Check that the contrast frees one independent coefficient under the null."""
+    import pymc as pm
+
+    from pyfcirt.covariates.pairwise import PairwiseL1RV
+    from pyfcirt.covariates.spike_slab import SpikeAndSlabRV
+    from pyfcirt.models.priors import describe_prior
+
+    fitted = plan.design
+    records = fitted.attrs["feature_records"]
+    levels = fitted.attrs.get("group_levels")
+    if levels is None and len(records) == 1 and records[0]["kind"] == "category":
+        levels = records[0]["levels"]
+    models = prepared.constant_data.unit_model.values
+    if (
+        levels is None
+        or len(levels) != 2
+        or matrix.shape != (2, 1)
+        or matrix[0, 0] == matrix[1, 0]
+        or any(models[index] != "TIRT" for target in plan.targets for index in target.unit_indices)
+        or np.any(plan.standardized_coefficients)
+    ):
+        raise ValueError("Bayes factors require one fixed-scale, two-group TIRT coefficient")
+    inclusion = set()
+    for prior in plan.priors.values():
+        op = prior.owner.op
+        if isinstance(op, SpikeAndSlabRV):
+            _, args = describe_prior(prior)
+            probability, _ = (value.item() for _, value in args)
+            inclusion.add(probability)
+            continue
+        inclusion.add(None)
+        if isinstance(op, PairwiseL1RV):
+            continue
+        if not isinstance(op, (pm.Normal.rv_type, pm.Laplace.rv_type)):
+            raise ValueError("Bayes factors require a supported continuous or spike-and-slab prior")
+        _, args = describe_prior(prior)
+        center, scale = (value for _, value in args)
+        if center.ndim or scale.ndim or center != 0 or not np.isfinite(scale) or scale <= 0:
+            raise ValueError("Bayes factors require zero-centered, fixed-scale coefficient priors")
+    if len(inclusion) != 1:
+        raise ValueError("Each target requires a common prior inclusion probability")
+    return inclusion.pop()
+
+
+def _spike_evidence(effects, inclusion_prob):
+    """Compute evidence from paired draws of an exactly zero or continuous effect."""
+    draws = effects.shape[0]
+    included = np.count_nonzero(effects, axis=0)
+    omitted = draws - included
+    status = np.full(effects.shape[1], "ok", dtype=object)
+    status[np.minimum(included, omitted) < 20] = "few_indicator_draws"
+    visited = (included > 0) & (omitted > 0)
+    status[~visited] = "indicator_state_unobserved"
+    bf10 = np.divide(
+        included * (1 - inclusion_prob),
+        omitted * inclusion_prob,
+        out=np.full(effects.shape[1], np.nan),
+        where=visited,
+    )
+    return {
+        "BF10": bf10,
+        "BF01": 1 / bf10,
+        "bf_status": status,
+        "inclusion_probability": included / draws,
+    }
+
+
+def _bf_fields(posterior, prior):
+    """Compute evidence one parameter at a time so invalid KDEs stay local."""
+    count = posterior.shape[1]
+    evidence = np.full((count, 2), np.nan)
+    status = np.full(count, None, dtype=object)
+    for index, (post, before) in enumerate(zip(posterior.T, prior.T, strict=True)):
+        if any(not np.isfinite(values).all() or np.ptp(values) == 0 for values in (post, before)):
+            status[index] = "invalid_density"
+            continue
+        # The ArviZ KDE grid does not estimate the density beyond the draws.
+        if any(not values.min() < 0 < values.max() for values in (post, before)):
+            continue
+        few_draws = any(
+            min(np.count_nonzero(values < 0), np.count_nonzero(values > 0)) < 20
+            for values in (post, before)
+        )
+        data = xr.DataTree.from_dict(
+            {
+                "/posterior": xr.Dataset({"effect": (("chain", "draw"), post[None])}),
+                "/prior": xr.Dataset({"effect": (("chain", "draw"), before[None])}),
+            }
+        )
+        try:
+            result = arviz_bayes_factor(data, "effect")
+        except (ValueError, FloatingPointError, ZeroDivisionError):
+            status[index] = "invalid_density"
+            continue
+        if isinstance(result, dict):  # ArviZ Stats 1.0 returned a mapping.
+            result = np.asarray([result["effect"][kind] for kind in ("BF10", "BF01")])
+        else:
+            result = result["effect"].sel(bf_type=["BF10", "BF01"]).to_numpy()
+        if np.isfinite(result).all() and (result > 0).all():
+            evidence[index] = result
+            status[index] = "few_draws_near_zero" if few_draws else "ok"
+        else:
+            status[index] = "invalid_density"
+    return {"BF10": evidence[:, 0], "BF01": evidence[:, 1], "bf_status": status}
+
+
+def _bf_prior_reader(model, pairs, *, draws, random_seed, assume_same_prior):
+    if len(pairs) != 1:
+        raise ValueError("Select one categorical contrast to compute Bayes factors")
+    if isinstance(draws, bool) or not isinstance(draws, Integral) or draws < 40:
+        raise ValueError("prior_draws must be an integer of at least 40")
+    if model._prior_conditioning() != "full prior" or model._fixed_reference is not None:
+        raise ValueError("Bayes factors require the original calibration fit")
+    identity = model.idata.attrs.get("dif_prior_identity")
+    if identity is None:
+        if not assume_same_prior:
+            raise ValueError(
+                "The posterior has no recorded DIF prior identity; verify the fitted priors "
+                "and use assume_same_prior=True"
+            )
+    elif identity != model.prepared.dif_prior_identity:
+        raise ValueError("The fitted DIF coefficient priors or bindings differ from the posterior")
+
+    @cache
+    def read():
+        import pymc as pm
+
+        coefficient = model.build()["regression_coefficient"]
+        return pm.draw(coefficient, draws=int(draws), random_seed=random_seed).reshape(draws, -1)
+
+    return read
+
+
+def summarize_dif(
+    model,
+    *,
+    contrasts=None,
+    at=None,
+    prob=0.95,
+    significant_only=False,
+    bayes_factor=False,
+    prior_draws=4000,
+    random_seed=None,
+    assume_same_prior=False,
+):
     """Summarize the to-minus-from draws on each measurement parameter's scale."""
     if isinstance(prob, bool) or not isinstance(prob, Real) or not 0 < prob < 1:
         raise ValueError("prob must be between zero and one")
     if not isinstance(significant_only, bool):
         raise TypeError("significant_only must be boolean")
+    if not isinstance(bayes_factor, bool) or not isinstance(assume_same_prior, bool):
+        raise TypeError("bayes_factor and assume_same_prior must be boolean")
     prepared = model.prepared
     plans = prepared.person_effect_regressions
     if not plans:
         raise ValueError("The model has no respondent-level DIF terms")
     pairs, encode = _profiles(
         plans, {} if at is None else at, {} if contrasts is None else contrasts
+    )
+    prior_reader = (
+        _bf_prior_reader(
+            model,
+            pairs,
+            draws=prior_draws,
+            random_seed=random_seed,
+            assume_same_prior=assume_same_prior,
+        )
+        if bayes_factor
+        else None
     )
     read = _draw_reader(model)
     coefficients = {plan.name: _coefficients(plan, read) for plan in plans}
@@ -180,20 +344,37 @@ def summarize_dif(model, *, contrasts=None, at=None, prob=0.95, significant_only
                 continue
             base = read(kind, positions)
             values = np.broadcast_to(base, (2, *base.shape)).copy()
+            tested = []
             for plan, pools, link in bindings:
                 active_pools = pools[positions]
                 active = active_pools >= 0
                 if active.any():
                     matrix = encode(plan.name, comparison)
-                    offsets = np.einsum(
-                        "ct,net->cne", matrix, coefficients[plan.name][:, active_pools[active]]
-                    )
+                    selected = active_pools[active]
+                    offsets = _contrast_offsets(matrix, coefficients[plan.name][:, selected])
+                    if prior_reader is not None and plan.name in active_plans:
+                        tested.append((plan, matrix, selected, link, offsets))
                     values[..., active] = offset_parameter(
                         values[..., active], offsets, link, tensor=np
                     )
             difference = values[1] - values[0]
             lower, upper = eti(difference, prob=prob, axis=0).T
             detected = (lower > 0) | (upper < 0)
+            evidence = {}
+            if prior_reader is not None:
+                if len(tested) != 1 or len(tested[0][2]) != len(positions):
+                    raise ValueError("Bayes factors require one free DIF coefficient per target")
+                plan, matrix, selected, link, offsets = tested[0]
+                inclusion_prob = _check_bf_plan(prepared, plan, matrix)
+                contrast_draws = offsets[1] - offsets[0]
+                if inclusion_prob is None:
+                    prior = _contrast_offsets(
+                        matrix, prior_reader()[:, plan.coefficient_entries[selected]]
+                    )
+                    evidence = _bf_fields(contrast_draws, prior[1] - prior[0])
+                else:
+                    evidence = _spike_evidence(contrast_draws, inclusion_prob)
+                evidence["bf_scale"] = "log_loading" if link == "log" else "cutpoint"
             results.append(
                 _entry_labels(prepared, kind, positions).assign(
                     parameter=kind,
@@ -206,6 +387,7 @@ def summarize_dif(model, *, contrasts=None, at=None, prob=0.95, significant_only
                     lower=lower,
                     upper=upper,
                     detected=detected,
+                    **evidence,
                 )
             )
     summary = pd.concat(results, ignore_index=True)
