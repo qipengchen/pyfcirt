@@ -279,6 +279,9 @@ def _dif_prior(prior, settings):
         defaults, allowed = {}, ()
     elif prior == "laplace":
         defaults, allowed = {}, ("b",)
+    elif prior == "spike_and_slab":
+        defaults = {"inclusion_prob": 0.2, "slab_sd": 1.0}
+        allowed = defaults.keys()
     elif prior == "hierarchical":
         allowed = RegressionOptions.__annotations__.keys() - {"deviation_noncentered"}
         defaults = {}
@@ -299,6 +302,21 @@ def _dif_prior(prior, settings):
         b = result["b"]
         if isinstance(b, bool) or not isinstance(b, Real) or not isfinite(b) or b <= 0:
             raise ValueError("Laplace b must be finite and positive")
+    if prior == "spike_and_slab":
+        probability, scale = result["inclusion_prob"], result["slab_sd"]
+        if (
+            isinstance(probability, bool)
+            or not isinstance(probability, Real)
+            or not 0 < probability < 1
+        ):
+            raise ValueError("Spike-and-slab inclusion_prob must be strictly between zero and one")
+        if (
+            isinstance(scale, bool)
+            or not isinstance(scale, Real)
+            or not isfinite(scale)
+            or scale <= 0
+        ):
+            raise ValueError("Spike-and-slab slab_sd must be finite and positive")
     return result
 
 
@@ -369,6 +387,11 @@ def dif_declarations(
                 regression_options = {"priors": {"common": law}}
             elif laplace and "b" in settings:
                 regression_options = {"priors": {"common": pm.Laplace.dist(mu=0, b=settings["b"])}}
+            elif law == "spike_and_slab":
+                from pyfcirt.covariates.spike_slab import spike_and_slab
+
+                template = spike_and_slab(settings["inclusion_prob"], settings["slab_sd"])
+                regression_options = {"priors": {"common": template}}
             elif law == "hierarchical":
                 regression_options = settings
             else:

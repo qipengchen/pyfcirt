@@ -93,6 +93,8 @@ indices and constraints instead of reprocessing raw tables or reselecting anchor
   syntax, independently of concrete measurement target indices.
 - `pyfcirt/covariates/design.py` fits/applies Formulae encoders and training transforms.
 - `pyfcirt/covariates/pairwise.py` owns the normalized pairwise group prior and its RNG.
+- `pyfcirt/covariates/spike_slab.py` owns the point-zero prior declaration and its native
+  indicator and slab nodes.
 - `pyfcirt/covariates/model.py` creates each prepared regression's mean/scale expressions
   once, then routes them to target nodes. It does not refit feature encoders.
 

@@ -484,7 +484,7 @@ class Model:
         groups: str | Sequence[str | tuple[str, ...]] = (),
         id: str = "person_id",
         pooling: Literal["unit", "shared"] = "unit",
-        prior: Literal["laplace", "hierarchical", "pairwise_l1", "truncated_l1"]
+        prior: Literal["laplace", "hierarchical", "pairwise_l1", "truncated_l1", "spike_and_slab"]
         | TensorVariable = "laplace",
         prior_options: Mapping | None = None,
     ) -> None:
@@ -522,16 +522,26 @@ class Model:
         at: Mapping | None = None,
         prob: float = 0.95,
         significant_only: bool = False,
+        bayes_factor: bool = False,
+        prior_draws: int = 4000,
+        random_seed: int | None = None,
     ) -> pd.DataFrame:
-        """Summarize posterior contrasts on the original measurement parameter scale.
+        """Summarize posterior differences and optional per-parameter Bayes factors.
 
-        Each row identifies a target and predictor contrast and reports the mean
-        difference, equal-tailed interval and whether it excludes zero.
+        Intervals use the original measurement scale. Bayes factors for two-group
+        TIRT use the fitted DIF coefficient scale and compare a free effect to zero.
         """
         from pyfcirt.analysis.dif import summarize_dif
 
         return summarize_dif(
-            self, contrasts=contrasts, at=at, prob=prob, significant_only=significant_only
+            self,
+            contrasts=contrasts,
+            at=at,
+            prob=prob,
+            significant_only=significant_only,
+            bayes_factor=bayes_factor,
+            prior_draws=prior_draws,
+            random_seed=random_seed,
         )
 
     def set_priors(self, priors: Mapping[str, TensorVariable]) -> None:

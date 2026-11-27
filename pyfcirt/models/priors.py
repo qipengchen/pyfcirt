@@ -28,6 +28,7 @@ from pytensor.tensor.random.op import RandomVariable
 from pytensor.tensor.variable import TensorVariable
 
 from pyfcirt.covariates.pairwise import PairwiseL1RV
+from pyfcirt.covariates.spike_slab import SpikeAndSlabRV
 
 _preparation = ContextVar("prior_preparation", default=None)
 
@@ -100,7 +101,8 @@ def _native(prior):
         raise ValueError("A prior template must be unnamed and unobserved; use pm.*.dist")
     op = prior.owner.op
     if not (
-        type(op).__module__.startswith(("pytensor.", "pymc.")) or isinstance(op, PairwiseL1RV)
+        type(op).__module__.startswith(("pytensor.", "pymc."))
+        or isinstance(op, (PairwiseL1RV, SpikeAndSlabRV))
     ) or not (
         isinstance(op, RandomVariable)
         or isinstance(op, SymbolicRandomVariable)
@@ -324,7 +326,10 @@ def bind_prior(
     prior: TensorVariable, *, name: str, shape: tuple[int, ...], dims=None
 ) -> TensorVariable:
     """Give one independent owner a native draw, preserving event axes/transforms."""
-    event_ndim = prior.owner.op.ndim_supp
+    op = prior.owner.op
+    if isinstance(op, SpikeAndSlabRV):
+        return op.bind(prior, name=name, shape=shape, dims=dims)
+    event_ndim = op.ndim_supp
     batch_shape = shape[:-event_ndim] if event_ndim else shape
     # Native symbolic resizing rebuilds the law, so preserve its dtype here too.
     with config.change_flags(floatX=prior.dtype):

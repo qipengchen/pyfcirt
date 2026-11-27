@@ -55,7 +55,11 @@ to see the eligible targets for the prepared design.
   term or an explicit group term, including when both are used together.
   Formulas with numeric predictors use Laplace when a pairwise prior is
   selected. Use the explicit `hierarchical` setting to reproduce earlier
-  models.
+  models. Experimental `"spike_and_slab"` gives each free coefficient a point
+  mass at zero and a zero-centered Normal slab. Set `inclusion_prob` (default
+  0.2) and `slab_sd` (default 1.0 on the regression scale) in `prior_options`.
+  Fit with `nuts_sampler="pymc"` to use native compound sampling for the
+  binary inclusion indicators and continuous parameters.
 - **prior_options** sets Laplace `b` or the chosen pairwise parameters.
   The automatic Laplace scales are 1/6 for loading effects and 1/3 for other
   effects, divided by the fitted continuous predictor scale for numeric terms.
@@ -95,7 +99,10 @@ identification under sparse DIF when anchor items are unknown.
 ## Summarize DIF
 
 ```text
-model.dif_summary(contrasts=None, *, at=None, prob=0.95, significant_only=False)
+model.dif_summary(
+    contrasts=None, *, at=None, prob=0.95, significant_only=False,
+    bayes_factor=False, prior_draws=4000, random_seed=None,
+)
 ```
 
 Return a pandas table of posterior differences on the measurement parameter's
@@ -114,6 +121,50 @@ center or reference level unless overridden with `at`. Crossed profiles
 must be combinations observed in the training data. Set
 `significant_only=True` to keep detected rows. The interval rule is for
 individual comparisons.
+
+### Per-parameter Bayes factors
+
+Set `bayes_factor=True` to add Savage–Dickey Bayes factors for one two-group
+TIRT contrast and independent, fixed-scale coefficient priors. Supply one
+categorical comparison through `contrasts`. Supported priors are fixed-scale
+Normal or Laplace, Pairwise L1, and truncated Pairwise L1. Each reported target
+must have a single free coefficient for the requested comparison. Anchors and
+fixed parameters have no free contrast to test.
+
+`BF10` favors a free group effect over a zero effect. `BF01` favors the zero
+effect over the free effect. `bf_scale` identifies the scale used for evidence.
+Loading evidence uses the difference of log loadings. Cutpoint evidence uses
+the cutpoint difference. The interval columns still use the original
+measurement scales, and `significant_only` still filters by the interval rule.
+
+`prior_draws=4000` controls draws from the fitted coefficient priors and must
+be at least 40.
+`random_seed` makes prior sampling reproducible. Both the prior and posterior
+draws use the same fitted encoder and contrast.
+When attaching posterior draws, rebuild the model with the DIF coefficient
+priors and bindings used to fit those draws.
+
+For continuous priors, the table reports the BF values returned by
+[ArviZ](https://python.arviz.org/projects/stats/en/latest/api/generated/arviz_stats.bayes_factor.html).
+ArviZ warns when zero is outside the prior or posterior draw range. Its
+fallback in that case depends on the ArviZ version, so the exact BF magnitude
+can be sensitive to the version. If the density estimate fails, the BF is
+empty and the effect estimate and interval remain available.
+
+For a fitted `"spike_and_slab"` term, the table also reports
+`inclusion_probability`, the posterior fraction of draws in the slab.
+`BF10` is posterior inclusion odds divided by prior inclusion odds.
+Point-zero evidence uses the effect draws directly. `indicator_state_unobserved`
+marks an unvisited inclusion state and omits the BF. `few_indicator_draws`
+marks fewer than 20 draws in either state.
+
+```python
+model.dif_summary(
+    contrasts={"site": ("A", "B")},
+    bayes_factor=True,
+    random_seed=42,
+)
+```
 
 ## Examples
 
